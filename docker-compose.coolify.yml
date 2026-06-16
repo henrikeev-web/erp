@@ -1,0 +1,65 @@
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: banguelas-nginx
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - uploads:/app/public/uploads:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+    networks:
+      - coolify
+      - internal
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.banguelas.rule=Host(`cardapio.banguelas.com.br`)
+      - traefik.http.routers.banguelas.entrypoints=https
+      - traefik.http.routers.banguelas.tls=true
+      - traefik.http.routers.banguelas.tls.certresolver=letsencrypt
+      - traefik.http.services.banguelas.loadbalancer.server.port=80
+      - traefik.docker.network=coolify
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: banguelas-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: delivery_erp
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - internal
+
+  app:
+    build: .
+    container_name: banguelas-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/delivery_erp
+      NODE_ENV: production
+    volumes:
+      - uploads:/app/public/uploads
+      - ./certs:/app/certs:ro
+    restart: unless-stopped
+    networks:
+      - internal
+
+volumes:
+  postgres_data:
+  uploads:
+
+networks:
+  coolify:
+    external: true
+  internal:
+    driver: bridge

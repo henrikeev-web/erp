@@ -1,0 +1,657 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── MULTI-MARCA ─────────────────────────────────────────────────────────────
+
+model Brand {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  logoUrl        String?
+  primaryColor   String   @default("#F97316")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  bannerTitle    String?
+  bannerSubtitle String?
+  bannerBgColor  String?
+  bannerBadges   String[]
+
+  products       Product[]
+  orders         Order[]
+  customers      Customer[]
+  coupons        Coupon[]
+  thematicMenus  ThematicMenu[]
+  loyaltyConfig  LoyaltyConfig?
+  bannerSlides   BannerSlide[]
+  schoolParents  SchoolParent[]
+}
+
+model BannerSlide {
+  id              String   @id @default(cuid())
+  brandId         String
+  desktopImageUrl String
+  mobileImageUrl  String
+  linkUrl         String?
+  order           Int      @default(0)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+}
+
+// ─── USUÁRIOS ADMIN / STAFF ──────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  role          UserRole  @default(STAFF)
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  STAFF
+  ENTREGADOR
+}
+
+// ─── CLIENTES ────────────────────────────────────────────────────────────────
+
+model Customer {
+  id           String    @id @default(cuid())
+  brandId      String
+  name         String
+  email        String?
+  phone        String    @unique
+  cpf          String?   @unique
+  passwordHash String?
+  active       Boolean   @default(true)
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastOrderAt  DateTime?
+
+  // Preferências de notificação
+  notifWhatsapp Boolean @default(false)
+  notifEmail    Boolean @default(true)
+  notifPromos   Boolean @default(false)
+  notifReorder  Boolean @default(true)
+
+  brand      Brand             @relation(fields: [brandId], references: [id])
+  children   Child[]
+  addresses  CustomerAddress[]
+  orders     Order[]
+  loyaltyCard LoyaltyCard?
+  followUps  FollowUp[]
+}
+
+model Child {
+  id         String   @id @default(cuid())
+  customerId String
+  name       String
+  birthDate  DateTime
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+model CustomerAddress {
+  id             String  @id @default(cuid())
+  customerId     String
+  label          String  @default("Casa")
+  cep            String
+  street         String
+  number         String
+  complement     String?
+  neighborhood   String
+  city           String
+  state          String  @default("SP")
+  isDefault      Boolean @default(false)
+  deliveryZoneId String?
+
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  deliveryZone DeliveryZone? @relation(fields: [deliveryZoneId], references: [id])
+  orders       Order[]
+}
+
+// ─── ZONAS DE ENTREGA ────────────────────────────────────────────────────────
+
+model DeliveryZone {
+  id            String   @id @default(cuid())
+  name          String
+  neighborhoods String[]
+  cities        String[]
+  cepRanges     Json?
+  maxRadiusKm   Float?
+  fee           Float
+  freeAbove     Float?
+  minOrder      Float    @default(0)
+  estimatedMin  Int      @default(30)
+  estimatedMax  Int      @default(60)
+  active        Boolean  @default(true)
+
+  addresses CustomerAddress[]
+  orders    Order[]
+}
+
+// ─── CARDÁPIO ────────────────────────────────────────────────────────────────
+
+model Category {
+  id       String  @id @default(cuid())
+  name     String
+  slug     String  @unique
+  imageUrl String?
+  ageMin   Int?
+  ageMax   Int?
+  order    Int     @default(0)
+  active   Boolean @default(true)
+
+  products Product[]
+}
+
+model Product {
+  id            String   @id @default(cuid())
+  brandId       String
+  categoryId    String?
+  name          String
+  description   String?
+  price         Float
+  priceOriginal Float?
+  sku           String?  @unique
+  ageMin        Int?
+  ageMax        Int?
+  weight        Float?
+  servings      Int?
+  ingredients   String?
+  allergens     String?
+  frozen        Boolean  @default(true)
+  active        Boolean  @default(true)
+  featured      Boolean  @default(false)
+  order         Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  brand        Brand      @relation(fields: [brandId], references: [id])
+  category     Category?  @relation(fields: [categoryId], references: [id])
+  images       ProductImage[]
+  stockItem    StockItem?
+  orderItems   OrderItem[]
+  thematicMenuProducts ThematicMenuProduct[]
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  url       String
+  alt       String?
+  order     Int     @default(0)
+  isMain    Boolean @default(false)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model ThematicMenu {
+  id          String    @id @default(cuid())
+  brandId     String
+  name        String
+  description String?
+  imageUrl    String?
+  ageMin      Int?
+  ageMax      Int?
+  validFrom   DateTime?
+  validTo     DateTime?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  brand    Brand                 @relation(fields: [brandId], references: [id])
+  products ThematicMenuProduct[]
+}
+
+model ThematicMenuProduct {
+  menuId    String
+  productId String
+  order     Int @default(0)
+
+  menu    ThematicMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  product Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([menuId, productId])
+}
+
+// ─── PEDIDOS ─────────────────────────────────────────────────────────────────
+
+model Order {
+  id             String      @id @default(cuid())
+  number         Int
+  brandId        String
+  customerId     String
+  addressId      String?
+  deliveryZoneId String?
+  type           OrderType   @default(DELIVERY)
+  status         OrderStatus @default(PENDING)
+  notes          String?
+  subtotal       Float
+  deliveryFee    Float       @default(0)
+  discount       Float       @default(0)
+  total          Float
+  couponId       String?
+  couponCode     String?
+  paymentLinkUrl String?
+  scheduledTo    DateTime?
+  confirmedAt    DateTime?
+  readyAt        DateTime?
+  dispatchedAt   DateTime?
+  deliveredAt    DateTime?
+  cancelledAt    DateTime?
+  cancelReason   String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  brand        Brand            @relation(fields: [brandId], references: [id])
+  customer     Customer         @relation(fields: [customerId], references: [id])
+  address      CustomerAddress? @relation(fields: [addressId], references: [id])
+  deliveryZone DeliveryZone?    @relation(fields: [deliveryZoneId], references: [id])
+  coupon       Coupon?          @relation(fields: [couponId], references: [id])
+  items        OrderItem[]
+  payment      Payment?
+  fiscalDocs   FiscalDocument[]
+  loyaltyTx    LoyaltyTransaction?
+
+  @@unique([brandId, number])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId String
+  name      String
+  price     Float
+  quantity  Int
+  total     Float
+  notes     String?
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+}
+
+enum OrderType {
+  DELIVERY
+  PICKUP
+  DINE_IN
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  IN_PRODUCTION
+  READY
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+// ─── PAGAMENTOS ──────────────────────────────────────────────────────────────
+
+model Payment {
+  id            String        @id @default(cuid())
+  orderId       String        @unique
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  amount        Float
+  gatewayId     String?
+  gatewayData   Json?
+  paidAt        DateTime?
+  refundedAt    DateTime?
+  changeAmount  Float?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+enum PaymentMethod {
+  CASH
+  PIX
+  CREDIT_CARD
+  DEBIT_CARD
+  VOUCHER
+  ONLINE_CREDIT
+  ONLINE_PIX
+  ONLINE_BOLETO
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+// ─── CUPONS ──────────────────────────────────────────────────────────────────
+
+model Coupon {
+  id             String     @id @default(cuid())
+  brandId        String
+  code           String     @unique
+  description    String?
+  type           CouponType
+  value          Float
+  minOrder       Float      @default(0)
+  maxDiscount    Float?
+  maxUses        Int?
+  usedCount      Int        @default(0)
+  validFrom      DateTime   @default(now())
+  validTo        DateTime?
+  ageMin         Int?
+  ageMax         Int?
+  firstOrderOnly Boolean    @default(false)
+  active         Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+
+  brand  Brand   @relation(fields: [brandId], references: [id])
+  orders Order[]
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED
+  FREE_DELIVERY
+}
+
+// ─── FIDELIDADE ──────────────────────────────────────────────────────────────
+
+model LoyaltyCard {
+  id         String      @id @default(cuid())
+  customerId String      @unique
+  points     Int         @default(0)
+  tier       LoyaltyTier @default(BRONZE)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  customer     Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  transactions LoyaltyTransaction[]
+}
+
+model LoyaltyTransaction {
+  id            String        @id @default(cuid())
+  loyaltyCardId String
+  orderId       String?       @unique
+  type          LoyaltyTxType
+  points        Int
+  description   String?
+  createdAt     DateTime      @default(now())
+
+  loyaltyCard LoyaltyCard @relation(fields: [loyaltyCardId], references: [id], onDelete: Cascade)
+  order       Order?      @relation(fields: [orderId], references: [id])
+}
+
+enum LoyaltyTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum LoyaltyTxType {
+  EARN
+  REDEEM
+  EXPIRE
+  BONUS
+  ADJUST
+}
+
+model LoyaltyConfig {
+  id                       String   @id @default(cuid())
+  brandId                  String   @unique
+  programEnabled           Boolean  @default(true)
+
+  // Regras do cartão de fidelidade
+  targetOrders             Int      @default(5)      // pedidos para completar o programa
+  minOrderValue            Float    @default(100)    // valor mínimo por pedido
+  completionPeriodDays     Int      @default(30)     // prazo para completar (dias)
+
+  // Recompensa
+  rewardType               String   @default("FIXED") // FIXED ou PERCENTAGE
+  rewardValue              Float    @default(30)     // valor do desconto
+  rewardValidDays          Int      @default(30)     // validade do desconto após ganhar
+
+  // Restrições
+  minIntervalHours         Int      @default(24)     // intervalo mínimo entre pedidos válidos
+  onlyDelivery             Boolean  @default(true)   // apenas pedidos de entrega contam
+  notCumulativeWithCoupons Boolean  @default(true)   // não acumula com cupons
+
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  brand Brand @relation(fields: [brandId], references: [id])
+}
+
+// ─── ESTOQUE ─────────────────────────────────────────────────────────────────
+
+model StockItem {
+  id          String   @id @default(cuid())
+  productId   String   @unique
+  quantity    Int      @default(0)
+  minQuantity Int      @default(5)
+  unit        String   @default("un")
+  updatedAt   DateTime @updatedAt
+
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  movements StockMovement[]
+}
+
+model StockMovement {
+  id          String            @id @default(cuid())
+  stockItemId String
+  type        StockMovementType
+  quantity    Int
+  reason      String?
+  reference   String?
+  createdAt   DateTime          @default(now())
+  createdBy   String?
+
+  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+}
+
+enum StockMovementType {
+  IN
+  OUT
+  ADJUSTMENT
+  PRODUCTION
+  WASTE
+}
+
+// ─── CRM / FOLLOW-UP ─────────────────────────────────────────────────────────
+
+model FollowUp {
+  id          String         @id @default(cuid())
+  customerId  String
+  type        FollowUpType
+  status      FollowUpStatus @default(PENDING)
+  scheduledAt DateTime
+  sentAt      DateTime?
+  message     String?
+  notes       String?
+  createdAt   DateTime       @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+enum FollowUpType {
+  INACTIVE_30
+  INACTIVE_60
+  INACTIVE_90
+  BIRTHDAY_CHILD
+  REORDER_SUGGESTION
+  WELCOME
+  CUSTOM
+}
+
+enum FollowUpStatus {
+  PENDING
+  SENT
+  RESPONDED
+  CANCELLED
+}
+
+// ─── WHATSAPP BOT ────────────────────────────────────────────────────────────
+
+model WhatsAppSession {
+  id         String    @id @default(cuid())
+  phone      String    @unique
+  state      String    @default("IDLE")
+  cartData   Json?
+  customerId String?
+  pausedAt   DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+// ─── DOCUMENTOS FISCAIS ──────────────────────────────────────────────────────
+
+model FiscalDocument {
+  id        String        @id @default(cuid())
+  orderId   String
+  type      FiscalDocType
+  number    String?
+  status    String        @default("draft")
+  content   Json?
+  pdfUrl    String?
+  issuedAt  DateTime?
+  createdAt DateTime      @default(now())
+
+  order Order @relation(fields: [orderId], references: [id])
+}
+
+enum FiscalDocType {
+  ROMANEIO
+  NFCE
+  NFE
+}
+
+// ─── ESCOLA / NFS-e ──────────────────────────────────────────────────────────
+
+model SchoolParent {
+  id         String   @id @default(cuid())
+  brandId    String
+  name       String
+  cpf        String?
+  email      String?
+  phone      String?
+  schoolName String?
+  childName  String?
+  monthlyFee Float
+  dueDay     Int      @default(10)
+  active     Boolean  @default(true)
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  brand    Brand            @relation(fields: [brandId], references: [id])
+  invoices MonthlyInvoice[]
+}
+
+model MonthlyInvoice {
+  id             String        @id @default(cuid())
+  schoolParentId String
+  referenceMonth Int
+  referenceYear  Int
+  amount         Float
+  dueDate        DateTime?
+  status         InvoiceStatus @default(PENDING)
+  rpsNumber      Int?
+  nfseNumber     String?
+  nfseVerifyCode String?
+  nfseXml        String?       @db.Text
+  nfseLink       String?
+  nfseIssuedAt   DateTime?
+  nfseError      String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  schoolParent SchoolParent @relation(fields: [schoolParentId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolParentId, referenceMonth, referenceYear])
+}
+
+enum InvoiceStatus {
+  PENDING
+  ISSUED
+  ERROR
+  CANCELLED
+}
+
+model NfseSequence {
+  id      String @id @default("rps_counter")
+  current Int    @default(0)
+}
+
+model NfseConfig {
+  id            String   @id @default("singleton")
+  cnpj          String   @default("")
+  im            String   @default("")
+  razaoSocial   String   @default("")
+  itemServico   String   @default("14.01")
+  codTributacao String   @default("")
+  aliquotaIss   Float    @default(0.02)
+  ambiente      String   @default("homologacao")
+  wsUrl         String   @default("https://ws-sjrp.giss.com.br/service-ws/nf/nfse-ws")
+  wsHomologUrl  String   @default("https://ws-ficticio.giss.com.br/service-ws/nf/nfse-ws")
+  updatedAt     DateTime @updatedAt
+}
