@@ -1,11 +1,16 @@
 import { prisma } from "@/lib/prisma";
+import { getCurrentUnit } from "@/lib/unit";
 import { Package, TrendingDown, TrendingUp, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import StockActions from "@/components/admin/StockActions";
 
 export default async function EstoquePage() {
+  const unit = await getCurrentUnit();
+  if (!unit) return <div className="p-8">Unidade não encontrada</div>;
+
   const stockItems = await prisma.stockItem.findMany({
+    where: { product: { unitId: unit.id } },
     include: {
       product: {
         include: { images: { where: { isMain: true }, take: 1 }, category: true },

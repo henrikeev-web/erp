@@ -8,11 +8,14 @@ import { formatCurrency, formatCep } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import axios from "axios";
+import { RESELLER_INVOICE_DAYS } from "@/lib/invoice-terms";
 
 interface CheckoutModalProps {
   open: boolean;
   onClose: () => void;
-  brandId: string;
+  brandId?: string; // legado: a unidade agora vem do host
+  /** Sessão de revendedor (decidido no servidor): habilita "Faturado" e desabilita cupom */
+  isReseller?: boolean;
 }
 
 type Step = "customer" | "address" | "payment" | "confirm" | "success";
@@ -60,7 +63,7 @@ const PAYMENT_METHODS = [
   { value: "CASH", label: "Dinheiro", icon: "💵", online: false },
 ];
 
-export default function CheckoutModal({ open, onClose, brandId }: CheckoutModalProps) {
+export default function CheckoutModal({ open, onClose, isReseller = false }: CheckoutModalProps) {
   const { items, subtotal, total, clear, couponCode, discount, setCoupon, clearCoupon } = useCart();
   const { data: session } = useSession();
   const isLoggedIn = session?.user?.role === "CUSTOMER";
@@ -77,6 +80,7 @@ export default function CheckoutModal({ open, onClose, brandId }: CheckoutModalP
   const [orderType, setOrderType] = useState<"DELIVERY" | "PICKUP">("DELIVERY");
   const [paymentMethod, setPaymentMethod] = useState("PIX");
   const [changeAmount, setChangeAmount] = useState("");
+  const [invoiceDays, setInvoiceDays] = useState<number>(RESELLER_INVOICE_DAYS[1]);
   const [couponInput, setCouponInput] = useState("");
   const [orderId, setOrderId] = useState("");
   const [orderNumber, setOrderNumber] = useState(0);
@@ -157,7 +161,6 @@ export default function CheckoutModal({ open, onClose, brandId }: CheckoutModalP
     try {
       const { data } = await axios.post("/api/cupons/validar", {
         code: couponInput.trim().toUpperCase(),
-        brandId,
         subtotal: subtotal(),
       });
       setCoupon(data.code, data.discount);
@@ -167,54 +170,36 @@ export default function CheckoutModal({ open, onClose, brandId }: CheckoutModalP
     }
   }
 
-  async function resolveCustomer(): Promise<string> {
-    if (isLoggedIn && session?.user?.id) return session.user.id;
-    const phone = customer.phone.replace(/\D/g, "");
-    try {
-      const { data } = await axios.post("/api/clientes", {
-        brandId,
-        name: customer.name,
-        phone,
-        email: customer.email || undefined,
-      });
-      return data.customerId || data.id;
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err) && err.response?.status === 409) {
-        return err.response.data.customerId;
-      }
-      throw err;
-    }
-  }
-
   async function submitOrder() {
     setLoading(true);
     setError("");
     try {
-      const customerId = await resolveCustomer();
+      // Uma única chamada: o servidor resolve cliente, endereço e pedido dentro da unidade
+      const usingSaved = orderType === "DELIVERY" && isLoggedIn && !!selectedSavedAddressId && selectedSavedAddressId !== "new";
 
-      let addressId: string | undefined;
-      if (orderType === "DELIVERY") {
-        if (selectedSavedAddressId && selectedSavedAddressId !== "new") {
-          addressId = selectedSavedAddressId;
-        } else {
-          const { data: addrData } = await axios.post(`/api/clientes/${customerId}/enderecos`, {
-            ...address,
-            label: "Entrega",
-          });
-          addressId = addrData.id;
-        }
-      }
-
-      const { data: order } = await axios.post("/api/pedidos", {
-        brandId,
-        customerId,
-        addressId,
+      const { data: order } = await axios.post("/api/checkout", {
+        customer: isLoggedIn
+          ? undefined
+          : { name: customer.name, phone: customer.phone.replace(/\D/g, ""), email: customer.email || undefined },
+        savedAddressId: usingSaved ? selectedSavedAddressId : undefined,
+        address: orderType === "DELIVERY" && !usingSaved
+          ? {
+              cep: address.cep,
+              street: address.street,
+              number: address.number,
+              complement: address.complement || undefined,
+              neighborhood: address.neighborhood,
+              city: address.city,
+              state: address.state,
+            }
+          : undefined,
         deliveryZoneId: orderType === "DELIVERY" ? address.deliveryZoneId : undefined,
         type: orderType,
         paymentMethod,
         changeAmount: paymentMethod === "CASH" && changeAmount ? parseFloat(changeAmount) : undefined,
-        couponCode: couponCode || undefined,
-        items: items.map((i) => ({ productId: i.product.id, quantity: i.quantity, notes: i.notes })),
+        invoiceDays: paymentMethod === "INVOICE" ? invoiceDays : undefined,
+        couponCode: isReseller ? undefined : couponCode || undefined,
+        items: items.map((i) => ({ productId: i.product.id, quantity: i.quantity, notes: i.notes, combo: i.combo })), // combo: escolha dentro do combo (validada no servidor)
       });
 
       setOrderId(order.id);
@@ -224,7 +209,9 @@ export default function CheckoutModal({ open, onClose, brandId }: CheckoutModalP
       clear();
     } catch (err) {
       console.error(err);
-      setError("Erro ao finalizar pedido. Tente novamente.");
+      // Mensagens do servidor (estoque, cupom, zona…) são pensadas para o cliente
+      const msg = axios.isAxiosError(err) && err.response?.status && err.response.status < 500 ? err.response.data?.error : null;
+      setError(msg || "Erro ao finalizar pedido. Tente novamente.");
     } finally {
       setLoading(false);
     }
@@ -500,6 +487,29 @@ export default function CheckoutModal({ open, onClose, brandId }: CheckoutModalP
                   ))}
                 </div>
               </div>
+              {isReseller && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide pt-1">Faturar</p>
+                  <button onClick={() => setPaymentMethod("INVOICE")}
+                    className={`w-full py-3 px-3 rounded-xl border text-sm font-medium transition-all text-left flex items-center gap-2 ${paymentMethod === "INVOICE" ? "border-orange-500 bg-orange-50 text-orange-700" : "border-zinc-200 text-zinc-600 hover:border-zinc-300"}`}>
+                    <span>🧾</span> Faturado — pagar depois
+                  </button>
+                  {paymentMethod === "INVOICE" && (
+                    <div>
+                      <label className="text-sm text-zinc-600 mb-1.5 block">Prazo para pagamento</label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {RESELLER_INVOICE_DAYS.map((d) => (
+                          <button key={d} onClick={() => setInvoiceDays(d)}
+                            className={`py-2 rounded-xl border text-sm font-medium ${invoiceDays === d ? "border-orange-500 bg-orange-50 text-orange-700" : "border-zinc-200 text-zinc-600"}`}>
+                            {d} dias
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-zinc-500 mt-1.5">O prazo conta a partir da data do pedido.</p>
+                    </div>
+                  )}
+                </div>
+              )}
               {paymentMethod === "CASH" && (
                 <div>
                   <label className="text-sm text-zinc-600 mb-1.5 block">Troco para quanto?</label>
@@ -512,6 +522,7 @@ export default function CheckoutModal({ open, onClose, brandId }: CheckoutModalP
                 </div>
               )}
 
+              {!isReseller && (
               <div className="border-t pt-4">
                 <label className="text-sm text-zinc-600 mb-1.5 block">Cupom de desconto</label>
                 <div className="flex gap-2">
@@ -535,6 +546,7 @@ export default function CheckoutModal({ open, onClose, brandId }: CheckoutModalP
                 )}
                 {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
               </div>
+              )}
             </div>
           )}
 
@@ -545,8 +557,8 @@ export default function CheckoutModal({ open, onClose, brandId }: CheckoutModalP
 
               <div className="bg-zinc-50 rounded-2xl divide-y divide-zinc-100">
                 {items.map((item) => (
-                  <div key={item.product.id} className="flex justify-between py-2.5 px-3 text-sm">
-                    <span className="text-zinc-700">{item.quantity}x {item.product.name}</span>
+                  <div key={item.lineId ?? item.product.id} className="flex justify-between py-2.5 px-3 text-sm">
+                    <span className="text-zinc-700">{item.quantity}x {item.product.name}{item.comboSummary && <span className="block text-xs text-zinc-400">{item.comboSummary}</span>}</span>
                     <span className="font-medium text-zinc-900">{formatCurrency(item.product.price * item.quantity)}</span>
                   </div>
                 ))}

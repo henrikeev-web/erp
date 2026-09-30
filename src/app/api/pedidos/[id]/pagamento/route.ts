@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createPaymentLink } from "@/lib/infinitepay";
+import { requireStaff } from "@/lib/api-auth";
 
 // Generate or resend an InfinityPay payment link for an order
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
 
-  const order = await prisma.order.findUnique({
-    where: { id },
+  const order = await prisma.order.findFirst({
+    where: { id, unitId: auth.unit.id },
     include: {
       items: true,
       customer: { select: { name: true, email: true, phone: true } },

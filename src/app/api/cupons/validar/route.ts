@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { resolveUnit } from "@/lib/api-auth";
 
 export async function POST(req: NextRequest) {
-  const { code, brandId, subtotal } = await req.json();
+  const unit = await resolveUnit();
+  if (unit instanceof NextResponse) return unit;
+  const { code, subtotal } = await req.json();
 
   const coupon = await prisma.coupon.findFirst({
     where: {
       code: code.toUpperCase(),
-      brandId,
+      unitId: unit.id,
       active: true,
       OR: [{ validTo: null }, { validTo: { gte: new Date() } }],
       AND: [{ validFrom: { lte: new Date() } }],

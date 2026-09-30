@@ -41,6 +41,11 @@ export async function POST(req: Request) {
 
   const data = parsed.data;
 
+  if (data.deliveryZoneId) {
+    const zone = await (prisma.deliveryZone as any).findFirst({ where: { id: data.deliveryZoneId, unitId: customer!.unitId }, select: { id: true } });
+    if (!zone) return NextResponse.json({ error: "Zona inválida" }, { status: 400 });
+  }
+
   if (data.isDefault) {
     await (prisma.customerAddress as any).updateMany({
       where: { customerId: customer!.id },

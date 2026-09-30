@@ -10,32 +10,34 @@ datasource db {
 // ─── MULTI-MARCA ─────────────────────────────────────────────────────────────
 
 model Brand {
-  id             String   @id @default(cuid())
-  name           String
-  slug           String   @unique
-  logoUrl        String?
-  primaryColor   String   @default("#F97316")
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  logoUrl      String?
+  primaryColor String   @default("#F97316")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
 
   bannerTitle    String?
   bannerSubtitle String?
   bannerBgColor  String?
   bannerBadges   String[]
 
-  products       Product[]
-  orders         Order[]
-  customers      Customer[]
-  coupons        Coupon[]
-  thematicMenus  ThematicMenu[]
-  loyaltyConfig  LoyaltyConfig?
-  bannerSlides   BannerSlide[]
-  schoolParents  SchoolParent[]
+  products      Product[]
+  orders        Order[]
+  customers     Customer[]
+  coupons       Coupon[]
+  thematicMenus ThematicMenu[]
+  loyaltyConfig LoyaltyConfig?
+  bannerSlides  BannerSlide[]
+  schoolParents SchoolParent[]
+  units         Unit[]
 }
 
 model BannerSlide {
   id              String   @id @default(cuid())
   brandId         String
+  unitId          String
   desktopImageUrl String
   mobileImageUrl  String
   linkUrl         String?
@@ -44,12 +46,55 @@ model BannerSlide {
   createdAt       DateTime @default(now())
 
   brand Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  unit  Unit? @relation(fields: [unitId], references: [id])
+
+  @@index([unitId])
+}
+
+// ─── UNIDADES (MATRIZ / FRANQUIAS) ───────────────────────────────────────────
+
+enum UnitType {
+  HQ
+  FRANCHISE
+}
+
+model Unit {
+  id        String   @id @default(cuid())
+  brandId   String
+  type      UnitType @default(FRANCHISE)
+  name      String
+  slug      String   @unique // subdomínio ou path: cidade.banguelas.com.br | banguelas.com.br/cidade
+  city      String?
+  state     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand               Brand                @relation(fields: [brandId], references: [id])
+  users               User[]
+  customers           Customer[]
+  orders              Order[]
+  products            Product[]
+  categories          Category[]
+  coupons             Coupon[]
+  deliveryZones       DeliveryZone[]
+  thematicMenus       ThematicMenu[]
+  bannerSlides        BannerSlide[]
+  suppliers           Supplier[]
+  costCenters         CostCenter[]
+  financialEntries    FinancialEntry[]
+  recurringEntries    RecurringEntry[]
+  couriers            Courier[]
+  franchiseeCustomer  Customer?            @relation("FranchiseCustomer")
+  announcementTargets AnnouncementTarget[]
+  awardGrants         AwardGrant[]
 }
 
 // ─── USUÁRIOS ADMIN / STAFF ──────────────────────────────────────────────────
 
 model User {
   id            String    @id @default(cuid())
+  unitId        String
   name          String?
   email         String    @unique
   emailVerified DateTime?
@@ -62,6 +107,9 @@ model User {
 
   accounts Account[]
   sessions Session[]
+  unit     Unit?     @relation(fields: [unitId], references: [id])
+
+  @@index([unitId])
 }
 
 model Account {
@@ -107,21 +155,39 @@ enum UserRole {
   ENTREGADOR
 }
 
+enum CustomerType {
+  RETAIL // consumidor final
+  RESELLER // ponto de venda / revendedor — cadastrado SOMENTE pelo admin; único que enxerga preço de revenda
+  FRANCHISEE // franqueado (fase de franquias)
+}
+
+enum OrderPriceTier {
+  RETAIL
+  RESELLER
+  FRANCHISE // reposição: franqueado comprando da matriz
+}
+
 // ─── CLIENTES ────────────────────────────────────────────────────────────────
 
 model Customer {
-  id           String    @id @default(cuid())
-  brandId      String
-  name         String
-  email        String?
-  phone        String    @unique
-  cpf          String?   @unique
-  passwordHash String?
-  active       Boolean   @default(true)
-  notes        String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  lastOrderAt  DateTime?
+  id              String       @id @default(cuid())
+  brandId         String
+  unitId          String
+  name            String
+  email           String?
+  phone           String
+  cpf             String?
+  passwordHash    String?
+  googleId        String?
+  active          Boolean      @default(true)
+  type            CustomerType @default(RETAIL)
+  // FRANCHISEE: a unidade (franquia) que este cliente da matriz representa
+  franchiseUnitId String?      @unique
+  franchiseUnit   Unit?        @relation("FranchiseCustomer", fields: [franchiseUnitId], references: [id])
+  notes           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  lastOrderAt     DateTime?
 
   // Preferências de notificação
   notifWhatsapp Boolean @default(false)
@@ -129,12 +195,21 @@ model Customer {
   notifPromos   Boolean @default(false)
   notifReorder  Boolean @default(true)
 
-  brand      Brand             @relation(fields: [brandId], references: [id])
-  children   Child[]
-  addresses  CustomerAddress[]
-  orders     Order[]
-  loyaltyCard LoyaltyCard?
-  followUps  FollowUp[]
+  brand            Brand             @relation(fields: [brandId], references: [id])
+  children         Child[]
+  addresses        CustomerAddress[]
+  orders           Order[]
+  loyaltyCard      LoyaltyCard?
+  followUps        FollowUp[]
+  unit             Unit?             @relation(fields: [unitId], references: [id])
+  financialEntries FinancialEntry[]
+  recurringEntries RecurringEntry[]
+
+  @@unique([unitId, phone])
+  @@unique([unitId, cpf])
+  @@unique([unitId, googleId])
+  @@index([unitId])
+  @@index([unitId, type])
 }
 
 model Child {
@@ -171,11 +246,13 @@ model CustomerAddress {
 
 model DeliveryZone {
   id            String   @id @default(cuid())
+  unitId        String
   name          String
   neighborhoods String[]
   cities        String[]
   cepRanges     Json?
   maxRadiusKm   Float?
+  courierFee    Float    @default(0) // quanto o entregador recebe por entrega nesta região (INTERNO — nunca público)
   fee           Float
   freeAbove     Float?
   minOrder      Float    @default(0)
@@ -185,51 +262,85 @@ model DeliveryZone {
 
   addresses CustomerAddress[]
   orders    Order[]
+  unit      Unit?             @relation(fields: [unitId], references: [id])
+
+  @@index([unitId])
 }
 
 // ─── CARDÁPIO ────────────────────────────────────────────────────────────────
 
 model Category {
-  id       String  @id @default(cuid())
-  name     String
-  slug     String  @unique
-  imageUrl String?
-  ageMin   Int?
-  ageMax   Int?
-  order    Int     @default(0)
-  active   Boolean @default(true)
+  id               String  @id @default(cuid())
+  unitId           String
+  name             String
+  slug             String
+  sourceCategoryId String?
+  imageUrl         String?
+  ageMin           Int?
+  ageMax           Int?
+  order            Int     @default(0)
+  active           Boolean @default(true)
 
   products Product[]
+  unit     Unit?     @relation(fields: [unitId], references: [id])
+
+  @@unique([unitId, slug])
+  @@unique([unitId, sourceCategoryId])
+  @@index([unitId])
 }
 
 model Product {
-  id            String   @id @default(cuid())
-  brandId       String
-  categoryId    String?
-  name          String
-  description   String?
-  price         Float
-  priceOriginal Float?
-  sku           String?  @unique
-  ageMin        Int?
-  ageMax        Int?
-  weight        Float?
-  servings      Int?
-  ingredients   String?
-  allergens     String?
-  frozen        Boolean  @default(true)
-  active        Boolean  @default(true)
-  featured      Boolean  @default(false)
-  order         Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String      @id @default(cuid())
+  brandId         String
+  unitId          String
+  categoryId      String?
+  name            String
+  description     String?
+  price           Float
+  priceOriginal   Float?
+  sku             String?
+  ageMin          Int?
+  ageMax          Int?
+  weight          Float?
+  servings        Int?
+  ingredients     String?
+  allergens       String?
+  // Dados internos (logística/fiscal) — nunca expostos no cardápio público
+  resalePrice     Float? // preço de revenda (fixo, igual p/ todos os revendedores) — NUNCA público
+  franchisePrice  Float? // preço de compra do FRANQUEADO na reposição — NUNCA público
+  barcode         String?
+  ncm             String?
+  packWeightG     Int? // peso da embalagem, em gramas
+  packLengthCm    Float?
+  packWidthCm     Float?
+  packHeightCm    Float?
+  // Franquias: produto da matriz do qual esta cópia veio (sincronização) e se a franquia definiu preço próprio
+  sourceProductId String?
+  priceCustom     Boolean     @default(false)
+  kind            ProductKind @default(SIMPLE)
+  comboSize       Int? // combo: quantidade EXATA de itens que o cliente monta
+  frozen          Boolean     @default(true)
+  active          Boolean     @default(true)
+  featured        Boolean     @default(false)
+  order           Int         @default(0)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
-  brand        Brand      @relation(fields: [brandId], references: [id])
-  category     Category?  @relation(fields: [categoryId], references: [id])
-  images       ProductImage[]
-  stockItem    StockItem?
-  orderItems   OrderItem[]
+  brand                Brand                 @relation(fields: [brandId], references: [id])
+  category             Category?             @relation(fields: [categoryId], references: [id])
+  images               ProductImage[]
+  stockItem            StockItem?
+  orderItems           OrderItem[]
   thematicMenuProducts ThematicMenuProduct[]
+  unit                 Unit?                 @relation(fields: [unitId], references: [id])
+  comboItems           ComboItem[]           @relation("ComboOf")
+  inCombos             ComboItem[]           @relation("ComboComponent")
+  orderComponents      OrderItemComponent[]
+
+  @@unique([unitId, sku])
+  @@unique([unitId, sourceProductId])
+  @@unique([unitId, barcode])
+  @@index([unitId])
 }
 
 model ProductImage {
@@ -246,6 +357,7 @@ model ProductImage {
 model ThematicMenu {
   id          String    @id @default(cuid())
   brandId     String
+  unitId      String
   name        String
   description String?
   imageUrl    String?
@@ -258,12 +370,15 @@ model ThematicMenu {
 
   brand    Brand                 @relation(fields: [brandId], references: [id])
   products ThematicMenuProduct[]
+  unit     Unit?                 @relation(fields: [unitId], references: [id])
+
+  @@index([unitId])
 }
 
 model ThematicMenuProduct {
   menuId    String
   productId String
-  order     Int @default(0)
+  order     Int    @default(0)
 
   menu    ThematicMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
   product Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -271,46 +386,64 @@ model ThematicMenuProduct {
   @@id([menuId, productId])
 }
 
+enum ProductKind {
+  SIMPLE
+  COMBO // preço fixo, quantidade exata, composto por produtos do cardápio (ver ComboItem)
+}
+
 // ─── PEDIDOS ─────────────────────────────────────────────────────────────────
 
 model Order {
-  id             String      @id @default(cuid())
-  number         Int
-  brandId        String
-  customerId     String
-  addressId      String?
-  deliveryZoneId String?
-  type           OrderType   @default(DELIVERY)
-  status         OrderStatus @default(PENDING)
-  notes          String?
-  subtotal       Float
-  deliveryFee    Float       @default(0)
-  discount       Float       @default(0)
-  total          Float
-  couponId       String?
-  couponCode     String?
-  paymentLinkUrl String?
-  scheduledTo    DateTime?
-  confirmedAt    DateTime?
-  readyAt        DateTime?
-  dispatchedAt   DateTime?
-  deliveredAt    DateTime?
-  cancelledAt    DateTime?
-  cancelReason   String?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  id                String         @id @default(cuid())
+  number            Int
+  brandId           String
+  unitId            String
+  customerId        String
+  addressId         String?
+  deliveryZoneId    String?
+  type              OrderType      @default(DELIVERY)
+  status            OrderStatus    @default(PENDING)
+  notes             String?
+  subtotal          Float
+  deliveryFee       Float          @default(0)
+  discount          Float          @default(0)
+  discountNote      String?
+  priceTier         OrderPriceTier @default(RETAIL)
+  invoiceDays       Int?
+  createdBy         String?
+  restockedAt       DateTime? // reposição entregue: estoque da franquia já alimentado (evita entrar duas vezes)
+  courierId         String?
+  courierFee        Float? // custo do entregador gravado ao escolher o entregador (INTERNO)
+  courierAssignedAt DateTime?
+  total             Float
+  couponId          String?
+  couponCode        String?
+  paymentLinkUrl    String?
+  scheduledTo       DateTime?
+  confirmedAt       DateTime?
+  readyAt           DateTime?
+  dispatchedAt      DateTime?
+  deliveredAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
-  brand        Brand            @relation(fields: [brandId], references: [id])
-  customer     Customer         @relation(fields: [customerId], references: [id])
-  address      CustomerAddress? @relation(fields: [addressId], references: [id])
-  deliveryZone DeliveryZone?    @relation(fields: [deliveryZoneId], references: [id])
-  coupon       Coupon?          @relation(fields: [couponId], references: [id])
+  brand        Brand               @relation(fields: [brandId], references: [id])
+  customer     Customer            @relation(fields: [customerId], references: [id])
+  address      CustomerAddress?    @relation(fields: [addressId], references: [id])
+  deliveryZone DeliveryZone?       @relation(fields: [deliveryZoneId], references: [id])
+  coupon       Coupon?             @relation(fields: [couponId], references: [id])
   items        OrderItem[]
   payment      Payment?
   fiscalDocs   FiscalDocument[]
   loyaltyTx    LoyaltyTransaction?
+  unit         Unit?               @relation(fields: [unitId], references: [id])
+  courier      Courier?            @relation(fields: [courierId], references: [id])
 
-  @@unique([brandId, number])
+  @@unique([unitId, number])
+  @@index([unitId, courierId, deliveredAt])
+  @@index([unitId])
 }
 
 model OrderItem {
@@ -323,8 +456,9 @@ model OrderItem {
   total     Float
   notes     String?
 
-  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id])
+  order      Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product    Product              @relation(fields: [productId], references: [id])
+  components OrderItemComponent[]
 }
 
 enum OrderType {
@@ -346,18 +480,18 @@ enum OrderStatus {
 // ─── PAGAMENTOS ──────────────────────────────────────────────────────────────
 
 model Payment {
-  id            String        @id @default(cuid())
-  orderId       String        @unique
-  method        PaymentMethod
-  status        PaymentStatus @default(PENDING)
-  amount        Float
-  gatewayId     String?
-  gatewayData   Json?
-  paidAt        DateTime?
-  refundedAt    DateTime?
-  changeAmount  Float?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id           String        @id @default(cuid())
+  orderId      String        @unique
+  method       PaymentMethod
+  status       PaymentStatus @default(PENDING)
+  amount       Float
+  gatewayId    String?
+  gatewayData  Json?
+  paidAt       DateTime?
+  refundedAt   DateTime?
+  changeAmount Float?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
@@ -371,6 +505,7 @@ enum PaymentMethod {
   ONLINE_CREDIT
   ONLINE_PIX
   ONLINE_BOLETO
+  INVOICE // faturado: paga depois, no prazo escolhido no pedido (gera conta a receber)
 }
 
 enum PaymentStatus {
@@ -387,7 +522,8 @@ enum PaymentStatus {
 model Coupon {
   id             String     @id @default(cuid())
   brandId        String
-  code           String     @unique
+  unitId         String
+  code           String
   description    String?
   type           CouponType
   value          Float
@@ -405,6 +541,10 @@ model Coupon {
 
   brand  Brand   @relation(fields: [brandId], references: [id])
   orders Order[]
+  unit   Unit?   @relation(fields: [unitId], references: [id])
+
+  @@unique([unitId, code])
+  @@index([unitId])
 }
 
 enum CouponType {
@@ -456,27 +596,27 @@ enum LoyaltyTxType {
 }
 
 model LoyaltyConfig {
-  id                       String   @id @default(cuid())
-  brandId                  String   @unique
-  programEnabled           Boolean  @default(true)
+  id             String  @id @default(cuid())
+  brandId        String  @unique
+  programEnabled Boolean @default(true)
 
   // Regras do cartão de fidelidade
-  targetOrders             Int      @default(5)      // pedidos para completar o programa
-  minOrderValue            Float    @default(100)    // valor mínimo por pedido
-  completionPeriodDays     Int      @default(30)     // prazo para completar (dias)
+  targetOrders         Int   @default(5) // pedidos para completar o programa
+  minOrderValue        Float @default(100) // valor mínimo por pedido
+  completionPeriodDays Int   @default(30) // prazo para completar (dias)
 
   // Recompensa
-  rewardType               String   @default("FIXED") // FIXED ou PERCENTAGE
-  rewardValue              Float    @default(30)     // valor do desconto
-  rewardValidDays          Int      @default(30)     // validade do desconto após ganhar
+  rewardType      String @default("FIXED") // FIXED ou PERCENTAGE
+  rewardValue     Float  @default(30) // valor do desconto
+  rewardValidDays Int    @default(30) // validade do desconto após ganhar
 
   // Restrições
-  minIntervalHours         Int      @default(24)     // intervalo mínimo entre pedidos válidos
-  onlyDelivery             Boolean  @default(true)   // apenas pedidos de entrega contam
-  notCumulativeWithCoupons Boolean  @default(true)   // não acumula com cupons
+  minIntervalHours         Int     @default(24) // intervalo mínimo entre pedidos válidos
+  onlyDelivery             Boolean @default(true) // apenas pedidos de entrega contam
+  notCumulativeWithCoupons Boolean @default(true) // não acumula com cupons
 
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   brand Brand @relation(fields: [brandId], references: [id])
 }
@@ -553,7 +693,8 @@ enum FollowUpStatus {
 
 model WhatsAppSession {
   id         String    @id @default(cuid())
-  phone      String    @unique
+  unitId     String
+  phone      String
   state      String    @default("IDLE")
   cartData   Json?
   customerId String?
@@ -561,6 +702,8 @@ model WhatsAppSession {
   expiresAt  DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
+
+  @@unique([unitId, phone])
 }
 
 // ─── DOCUMENTOS FISCAIS ──────────────────────────────────────────────────────
@@ -654,4 +797,292 @@ model NfseConfig {
   wsUrl         String   @default("https://ws-sjrp.giss.com.br/service-ws/nf/nfse-ws")
   wsHomologUrl  String   @default("https://ws-ficticio.giss.com.br/service-ws/nf/nfse-ws")
   updatedAt     DateTime @updatedAt
+}
+
+// ─── FINANCEIRO (contas a pagar / a receber) ─────────────────────────────────
+
+enum EntryType {
+  PAYABLE // a pagar
+  RECEIVABLE // a receber
+}
+
+enum EntryStatus {
+  OPEN
+  PAID
+  CANCELLED
+}
+
+// Origem do lançamento; sourceKey torna a geração automática idempotente
+enum EntrySource {
+  MANUAL
+  RECURRING
+  ORDER // pedido faturado (revendedor/franquia)
+  COURIER // repasse diário de entregador
+}
+
+enum RecurrenceUnit {
+  DAY
+  WEEK
+  MONTH
+  YEAR
+}
+
+model Supplier {
+  id        String   @id @default(cuid())
+  unitId    String
+  name      String
+  document  String? // CNPJ/CPF, só dígitos
+  phone     String?
+  email     String?
+  notes     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  unit             Unit             @relation(fields: [unitId], references: [id])
+  entries          FinancialEntry[]
+  recurringEntries RecurringEntry[]
+
+  @@unique([unitId, document])
+  @@index([unitId])
+}
+
+model CostCenter {
+  id        String   @id @default(cuid())
+  unitId    String
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  unit             Unit             @relation(fields: [unitId], references: [id])
+  entries          FinancialEntry[]
+  recurringEntries RecurringEntry[]
+
+  @@unique([unitId, name])
+  @@index([unitId])
+}
+
+model FinancialEntry {
+  id          String      @id @default(cuid())
+  unitId      String
+  type        EntryType
+  description String
+  amount      Float
+  dueDate     DateTime    @db.Date
+  status      EntryStatus @default(OPEN)
+  paidAt      DateTime?   @db.Date
+  paidAmount  Float?
+  payMethod   String?
+  notes       String?
+
+  supplierId   String?
+  customerId   String?
+  costCenterId String?
+  recurringId  String?
+  orderId      String?
+  courierId    String?
+
+  installmentNumber Int?
+  installmentTotal  Int?
+
+  source    EntrySource @default(MANUAL)
+  sourceKey String? // ex.: "courier:<id>:2026-10-01"
+  createdBy String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  unit       Unit            @relation(fields: [unitId], references: [id])
+  supplier   Supplier?       @relation(fields: [supplierId], references: [id])
+  customer   Customer?       @relation(fields: [customerId], references: [id])
+  costCenter CostCenter?     @relation(fields: [costCenterId], references: [id])
+  recurring  RecurringEntry? @relation(fields: [recurringId], references: [id], onDelete: SetNull)
+  courier    Courier?        @relation(fields: [courierId], references: [id])
+
+  @@unique([unitId, sourceKey])
+  @@unique([recurringId, dueDate])
+  @@index([unitId, type, status, dueDate])
+}
+
+model RecurringEntry {
+  id          String         @id @default(cuid())
+  unitId      String
+  type        EntryType
+  description String
+  amount      Float
+  every       Int            @default(1)
+  period      RecurrenceUnit @default(MONTH)
+  startDate   DateTime       @db.Date // 1ª cobrança; as demais são calculadas a partir dela
+  endDate     DateTime?      @db.Date
+  active      Boolean        @default(true)
+  notes       String?
+
+  supplierId   String?
+  customerId   String?
+  costCenterId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  unit       Unit             @relation(fields: [unitId], references: [id])
+  supplier   Supplier?        @relation(fields: [supplierId], references: [id])
+  customer   Customer?        @relation(fields: [customerId], references: [id])
+  costCenter CostCenter?      @relation(fields: [costCenterId], references: [id])
+  entries    FinancialEntry[]
+
+  @@index([unitId, active])
+}
+
+// ─── ENTREGADORES (sem acesso ao sistema; pagos por entrega) ─────────────────
+
+model Courier {
+  id        String   @id @default(cuid())
+  unitId    String
+  name      String
+  phone     String?
+  pixKey    String?
+  document  String? // CPF, só dígitos
+  notes     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  unit    Unit             @relation(fields: [unitId], references: [id])
+  orders  Order[]
+  entries FinancialEntry[]
+
+  @@unique([unitId, phone])
+  @@index([unitId, active])
+}
+
+// ─── COMBOS PERSONALIZADOS ───────────────────────────────────────────────────
+
+// Produto que compõe um combo. maxQty = limite de unidades DESTE produto por combo (null = sem limite,
+// vale até completar a quantidade do combo).
+model ComboItem {
+  id        String @id @default(cuid())
+  comboId   String
+  productId String
+  maxQty    Int?
+  order     Int    @default(0)
+
+  combo   Product @relation("ComboOf", fields: [comboId], references: [id], onDelete: Cascade)
+  product Product @relation("ComboComponent", fields: [productId], references: [id])
+
+  @@unique([comboId, productId])
+  @@index([comboId])
+}
+
+// O que o cliente escolheu dentro de um combo do pedido (já multiplicado pela quantidade da linha).
+// É por aqui que baixa o estoque dos produtos individuais e que a produção enxerga o que preparar.
+model OrderItemComponent {
+  id          String @id @default(cuid())
+  orderItemId String
+  productId   String
+  name        String
+  quantity    Int
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id])
+
+  @@index([orderItemId])
+  @@index([productId])
+}
+
+// ─── AVISOS E POP-UPS (matriz → franquias) ───────────────────────────────────
+
+enum AnnouncementKind {
+  POPUP // abre ao entrar no painel, uma vez por usuário, até confirmar
+  NOTICE // fica no sino de notificações
+}
+
+enum AnnouncementLevel {
+  INFO
+  SUCCESS
+  WARNING
+}
+
+model Announcement {
+  id        String            @id @default(cuid())
+  brandId   String
+  title     String
+  body      String            @db.Text
+  kind      AnnouncementKind  @default(NOTICE)
+  level     AnnouncementLevel @default(INFO)
+  startsAt  DateTime          @default(now())
+  endsAt    DateTime?
+  active    Boolean           @default(true)
+  allUnits  Boolean           @default(true) // false = só as franquias em targets
+  source    String            @default("MANUAL") // MANUAL | AWARD (gerado por premiação)
+  createdBy String?
+  createdAt DateTime          @default(now())
+
+  targets AnnouncementTarget[]
+  reads   AnnouncementRead[]
+
+  @@index([brandId, active])
+}
+
+model AnnouncementTarget {
+  announcementId String
+  unitId         String
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  unit         Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@id([announcementId, unitId])
+}
+
+// Leitura por USUÁRIO: cada pessoa da franquia vê o pop-up uma vez
+model AnnouncementRead {
+  id             String   @id @default(cuid())
+  announcementId String
+  userId         String
+  unitId         String
+  readAt         DateTime @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([unitId])
+}
+
+// ─── PREMIAÇÕES (metas para as franquias) ────────────────────────────────────
+
+enum AwardMetric {
+  ORDERS // quantidade de pedidos (não cancelados)
+  SALES // faturamento em R$ (pedidos não cancelados)
+}
+
+model Award {
+  id          String      @id @default(cuid())
+  brandId     String
+  name        String
+  description String?
+  metric      AwardMetric
+  threshold   Float // ex.: 1000 pedidos ou 10000 (R$)
+  startsAt    DateTime? // janela opcional da campanha; vazio = desde sempre
+  endsAt      DateTime?
+  reward      String? // o prêmio (texto livre)
+  active      Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+
+  grants AwardGrant[]
+
+  @@index([brandId, active])
+}
+
+model AwardGrant {
+  id          String    @id @default(cuid())
+  awardId     String
+  unitId      String
+  achievedAt  DateTime // momento em que a meta foi cruzada
+  value       Float // valor no momento da conquista
+  deliveredAt DateTime? // matriz marca quando entregou o prêmio
+  note        String?
+  createdAt   DateTime  @default(now())
+
+  award Award @relation(fields: [awardId], references: [id], onDelete: Cascade)
+  unit  Unit  @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@unique([awardId, unitId])
+  @@index([unitId])
 }

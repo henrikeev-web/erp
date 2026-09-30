@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import sharp from "sharp";
+import { requireStaff } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,9 @@ const PRESETS = {
 };
 
 export async function POST(req: NextRequest) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const { searchParams } = new URL(req.url);
     const type = searchParams.get("type") as "desktop" | "mobile" | null;

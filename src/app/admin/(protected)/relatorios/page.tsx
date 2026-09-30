@@ -1,11 +1,12 @@
 import { prisma } from "@/lib/prisma";
+import { getCurrentUnit } from "@/lib/unit";
 import { formatCurrency } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingUp, ShoppingBag, Users, Package } from "lucide-react";
 import { RevenueAreaChart } from "@/components/admin/DashboardCharts";
 import type { DayRevenue } from "@/components/admin/DashboardCharts";
 
-async function getReports() {
+async function getReports(unitId: string) {
   const now = new Date();
   const startOf30 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30);
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -20,33 +21,33 @@ async function getReports() {
     byStatus,
     weeklyOrders,
   ] = await Promise.all([
-    prisma.order.aggregate({ where: { createdAt: { gte: startOf30 }, status: { not: "CANCELLED" } }, _sum: { total: true }, _count: true }),
-    prisma.order.aggregate({ where: { createdAt: { gte: startOf7 }, status: { not: "CANCELLED" } }, _sum: { total: true }, _count: true }),
-    prisma.order.aggregate({ where: { createdAt: { gte: startOfMonth }, status: { not: "CANCELLED" } }, _sum: { total: true }, _count: true }),
-    prisma.order.count({ where: { createdAt: { gte: startOf30 }, status: { not: "CANCELLED" } } }),
-    prisma.order.count({ where: { createdAt: { gte: startOfMonth }, status: { not: "CANCELLED" } } }),
-    prisma.customer.count({ where: { createdAt: { gte: startOf30 } } }),
+    prisma.order.aggregate({ where: { unitId, createdAt: { gte: startOf30 }, status: { not: "CANCELLED" } }, _sum: { total: true }, _count: true }),
+    prisma.order.aggregate({ where: { unitId, createdAt: { gte: startOf7 }, status: { not: "CANCELLED" } }, _sum: { total: true }, _count: true }),
+    prisma.order.aggregate({ where: { unitId, createdAt: { gte: startOfMonth }, status: { not: "CANCELLED" } }, _sum: { total: true }, _count: true }),
+    prisma.order.count({ where: { unitId, createdAt: { gte: startOf30 }, status: { not: "CANCELLED" } } }),
+    prisma.order.count({ where: { unitId, createdAt: { gte: startOfMonth }, status: { not: "CANCELLED" } } }),
+    prisma.customer.count({ where: { unitId, createdAt: { gte: startOf30 } } }),
     prisma.orderItem.groupBy({
       by: ["name"],
-      where: { order: { createdAt: { gte: startOf30 }, status: { not: "CANCELLED" } } },
+      where: { order: { unitId, createdAt: { gte: startOf30 }, status: { not: "CANCELLED" } } },
       _sum: { quantity: true, total: true },
       orderBy: { _sum: { total: "desc" } },
       take: 10,
     }),
     prisma.payment.groupBy({
       by: ["method"],
-      where: { createdAt: { gte: startOf30 }, status: "PAID" },
+      where: { order: { unitId }, createdAt: { gte: startOf30 }, status: "PAID" },
       _sum: { amount: true },
       _count: true,
     }),
     prisma.order.groupBy({
       by: ["status"],
-      where: { createdAt: { gte: startOf30 } },
+      where: { unitId, createdAt: { gte: startOf30 } },
       _count: true,
     }),
     // findMany instead of $queryRaw to avoid BigInt serialization issues
     prisma.order.findMany({
-      where: { createdAt: { gte: startOf7 }, status: { not: "CANCELLED" } },
+      where: { unitId, createdAt: { gte: startOf7 }, status: { not: "CANCELLED" } },
       select: { total: true, createdAt: true },
     }),
   ]);
@@ -84,7 +85,9 @@ async function getReports() {
 }
 
 export default async function RelatoriosPage() {
-  const data = await getReports();
+  const unit = await getCurrentUnit();
+  if (!unit) return <div className="p-8">Unidade não encontrada</div>;
+  const data = await getReports(unit.id);
 
   const STATUS_LABELS: Record<string, string> = {
     PENDING: "Aguardando", CONFIRMED: "Confirmado", IN_PRODUCTION: "Produção",

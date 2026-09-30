@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getCurrentUnit } from "@/lib/unit";
 import { formatCurrency } from "@/lib/utils";
 import { ShoppingBag, Users, TrendingUp, Clock, Package, Star } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,7 +28,7 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED: "#ef4444",
 };
 
-async function getDashboard() {
+async function getDashboard(unitId: string) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
@@ -47,10 +48,10 @@ async function getDashboard() {
     weeklyOrders,
     byStatus30,
   ] = await Promise.all([
-    prisma.order.count({ where: { status: { in: ["PENDING", "CONFIRMED", "IN_PRODUCTION"] } } }),
+    prisma.order.count({ where: { unitId, status: { in: ["PENDING", "CONFIRMED", "IN_PRODUCTION"] } } }),
 
     prisma.order.findMany({
-      where: { status: { in: ["PENDING", "CONFIRMED", "IN_PRODUCTION", "READY"] } },
+      where: { unitId, status: { in: ["PENDING", "CONFIRMED", "IN_PRODUCTION", "READY"] } },
       include: {
         customer: { select: { name: true, phone: true } },
         items: { select: { name: true, quantity: true } },
@@ -61,45 +62,45 @@ async function getDashboard() {
     }),
 
     prisma.order.aggregate({
-      where: { createdAt: { gte: thirtyDaysAgo }, status: { not: "CANCELLED" } },
+      where: { unitId, createdAt: { gte: thirtyDaysAgo }, status: { not: "CANCELLED" } },
       _sum: { total: true },
     }),
 
     prisma.order.count({
-      where: { createdAt: { gte: today, lt: tomorrow }, status: { not: "CANCELLED" } },
+      where: { unitId, createdAt: { gte: today, lt: tomorrow }, status: { not: "CANCELLED" } },
     }),
 
     prisma.order.aggregate({
-      where: { createdAt: { gte: today, lt: tomorrow }, status: { not: "CANCELLED" } },
+      where: { unitId, createdAt: { gte: today, lt: tomorrow }, status: { not: "CANCELLED" } },
       _sum: { total: true },
     }),
 
     prisma.customer.count({
-      where: { lastOrderAt: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) } },
+      where: { unitId, lastOrderAt: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) } },
     }),
 
     prisma.stockItem.findMany({
-      where: { quantity: { lte: prisma.stockItem.fields.minQuantity } },
+      where: { product: { unitId }, quantity: { lte: prisma.stockItem.fields.minQuantity } },
       include: { product: { select: { name: true } } },
       take: 5,
     }).catch(() => []),
 
     prisma.orderItem.groupBy({
       by: ["name"],
-      where: { order: { createdAt: { gte: thirtyDaysAgo }, status: { not: "CANCELLED" } } },
+      where: { order: { unitId, createdAt: { gte: thirtyDaysAgo }, status: { not: "CANCELLED" } } },
       _sum: { quantity: true },
       orderBy: { _sum: { quantity: "desc" } },
       take: 5,
     }),
 
     prisma.order.findMany({
-      where: { createdAt: { gte: sevenDaysAgo }, status: { not: "CANCELLED" } },
+      where: { unitId, createdAt: { gte: sevenDaysAgo }, status: { not: "CANCELLED" } },
       select: { total: true, createdAt: true },
     }),
 
     prisma.order.groupBy({
       by: ["status"],
-      where: { createdAt: { gte: thirtyDaysAgo } },
+      where: { unitId, createdAt: { gte: thirtyDaysAgo } },
       _count: true,
     }),
   ]);
@@ -142,7 +143,9 @@ async function getDashboard() {
 }
 
 export default async function AdminDashboard() {
-  const data = await getDashboard();
+  const unit = await getCurrentUnit();
+  if (!unit) return <div className="p-8">Unidade não encontrada</div>;
+  const data = await getDashboard(unit.id);
 
   const stats = [
     { label: "Pedidos pendentes", value: data.pendingOrders, icon: Clock, href: "/admin/pedidos?status=PENDING" },

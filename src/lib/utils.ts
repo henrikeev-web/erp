@@ -76,6 +76,7 @@ export function paymentMethodLabel(method: string): string {
     ONLINE_CREDIT: "Crédito Online",
     ONLINE_PIX: "PIX Online",
     ONLINE_BOLETO: "Boleto",
+    INVOICE: "Faturado",
   };
   return map[method] ?? method;
 }

@@ -12,6 +12,7 @@ interface OrderItem {
   price: number;
   total: number;
   product: { images: { url: string }[] };
+  components?: { name: string; quantity: number }[];
 }
 
 interface Order {
@@ -115,6 +116,7 @@ export default function PedidosPage() {
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ margin: 0, fontSize: 13, color: "#1c1917", fontWeight: 500 }}>{item.name}</p>
                           <p style={{ margin: 0, fontSize: 12, color: "#a8a29e" }}>{item.quantity}x {formatCurrency(item.price)}</p>
+                          {item.components?.length ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "#a8a29e" }}>{item.components.map((c) => `${c.quantity}× ${c.name}`).join(" · ")}</p> : null}
                         </div>
                         <span style={{ fontSize: 13, fontWeight: 600, color: "#57534e" }}>{formatCurrency(item.total)}</span>
                       </div>

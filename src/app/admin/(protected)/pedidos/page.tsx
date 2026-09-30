@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, RefreshCw, Phone, Printer, Send } from "lucide-react";
+import { Search, RefreshCw, Phone, Printer, Send, Plus } from "lucide-react";
 import Link from "next/link";
 import axios from "axios";
 import { formatCurrency, orderStatusLabel, paymentMethodLabel } from "@/lib/utils";
@@ -11,6 +11,7 @@ import OrderStatusBadge from "@/components/admin/OrderStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AdminEvent } from "@/lib/sse";
+import { useOrderStatus } from "@/components/admin/CourierPicker";
 
 const STATUS_TABS = [
   { value: "", label: "Todos" },
@@ -23,6 +24,18 @@ const STATUS_TABS = [
   { value: "CANCELLED", label: "Cancelados" },
 ];
 
+// Datas locais (YYYY-MM-DD) para o filtro de período
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return ymd(d); };
+
+const PERIOD_PRESETS = [
+  { label: "Hoje", range: () => [ymd(new Date()), ymd(new Date())] },
+  { label: "Ontem", range: () => [daysAgo(1), daysAgo(1)] },
+  { label: "7 dias", range: () => [daysAgo(6), ymd(new Date())] },
+  { label: "30 dias", range: () => [daysAgo(29), ymd(new Date())] },
+  { label: "Este mês", range: () => { const n = new Date(); return [ymd(new Date(n.getFullYear(), n.getMonth(), 1)), ymd(n)]; } },
+] as const;
+
 const ONLINE_METHODS = ["ONLINE_PIX", "ONLINE_CREDIT", "ONLINE_BOLETO"];
 
 interface Payment {
@@ -32,7 +45,8 @@ interface Payment {
 
 interface Order {
   id: string; number: number; status: string; type: string;
-  total: number; createdAt: string; paymentLinkUrl: string | null;
+  total: number; createdAt: string; paymentLinkUrl: string | null; priceTier?: string; invoiceDays?: number | null;
+  courier?: { id: string; name: string } | null;
   customer: { name: string; phone: string };
   payment: Payment | null;
   items: { name: string; quantity: number }[];
@@ -47,6 +61,9 @@ interface PrintToast {
 export default function PedidosPage() {
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
+  const [onlyRepo, setOnlyRepo] = useState(false);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [orders, setOrders] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -59,13 +76,18 @@ export default function PedidosPage() {
     try {
       const params = new URLSearchParams();
       if (status) params.set("status", status);
+      if (onlyRepo) params.set("reposicao", "true");
+      if (from) params.set("de", from);
+      if (to) params.set("ate", to);
+      // Com período definido, traz até 100 pedidos em vez da 1ª página de 20
+      if (from || to) params.set("limit", "100");
       const { data } = await axios.get(`/api/pedidos?${params}`);
       setOrders(data.orders);
       setTotal(data.total);
     } finally {
       setLoading(false);
     }
-  }, [status]);
+  }, [status, from, to, onlyRepo]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -97,10 +119,8 @@ export default function PedidosPage() {
       )
     : orders;
 
-  async function updateStatus(orderId: string, newStatus: string) {
-    await axios.patch(`/api/pedidos/${orderId}`, { status: newStatus });
-    load();
-  }
+  // Pedido de entrega sem entregador: o servidor avisa e o seletor abre sozinho
+  const { change: updateStatus, modal: courierModal } = useOrderStatus(load);
 
   async function resendPaymentLink(order: Order) {
     setResendingId(order.id);
@@ -128,6 +148,8 @@ export default function PedidosPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-5">
+      {courierModal}
+
       {/* Auto-print toast */}
       {printToast && (
         <div style={{
@@ -156,9 +178,14 @@ export default function PedidosPage() {
           <h1 className="text-2xl font-bold text-zinc-900">Pedidos</h1>
           <p className="text-zinc-500 text-sm">{total} pedido{total !== 1 ? "s" : ""} encontrado{total !== 1 ? "s" : ""}</p>
         </div>
-        <Button onClick={load} variant="outline" size="icon">
-          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-        </Button>
+        <div className="flex gap-2">
+          <Link href="/admin/pedidos/novo">
+            <Button className="bg-orange-500 hover:bg-orange-600"><Plus className="w-4 h-4 mr-1.5" /> Novo pedido</Button>
+          </Link>
+          <Button onClick={load} variant="outline" size="icon">
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
       </div>
 
       {/* Status tabs */}
@@ -176,6 +203,40 @@ export default function PedidosPage() {
             {tab.label}
           </button>
         ))}
+      </div>
+
+      <label className="flex items-center gap-2 text-sm text-zinc-600 w-fit"><input type="checkbox" checked={onlyRepo} onChange={(e) => setOnlyRepo(e.target.checked)} /> Só reposições das franquias</label>
+
+      {/* Período */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <label className="text-xs font-medium text-zinc-500">De</label>
+          <Input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className="w-auto h-9" />
+          <label className="text-xs font-medium text-zinc-500">até</label>
+          <Input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className="w-auto h-9" />
+        </div>
+        <div className="flex gap-1">
+          {PERIOD_PRESETS.map((p) => (
+            <button
+              key={p.label}
+              onClick={() => { const [a, b] = p.range(); setFrom(a); setTo(b); }}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+            >
+              {p.label}
+            </button>
+          ))}
+          {(from || to) && (
+            <button onClick={() => { setFrom(""); setTo(""); }} className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-orange-600 hover:bg-orange-50">
+              Limpar
+            </button>
+          )}
+        </div>
+        {(from || to) && !loading && (
+          <span className="text-xs text-zinc-500">
+            {total} pedido{total !== 1 ? "s" : ""} no período
+            {total > orders.length ? ` (mostrando os ${orders.length} mais recentes)` : ""}
+          </span>
+        )}
       </div>
 
       {/* Search */}
@@ -225,7 +286,10 @@ export default function PedidosPage() {
                   </p>
                   <p className="text-xs text-zinc-400 mt-0.5">
                     {format(new Date(order.createdAt), "dd/MM HH:mm", { locale: ptBR })}
-                    {order.payment && ` · ${paymentMethodLabel(order.payment.method)}`}
+                    {order.payment && ` · ${paymentMethodLabel(order.payment.method)}${order.payment.method === "INVOICE" && order.invoiceDays ? ` ${order.invoiceDays}d` : ""}`}
+                    {order.courier && <span className="ml-1.5 text-[11px] text-zinc-500">🛵 {order.courier.name}</span>}
+                    {order.priceTier === "FRANCHISE" && <span className="ml-1.5 text-[11px] px-1.5 py-0.5 rounded-full font-semibold bg-blue-100 text-blue-800">Reposição</span>}
+                    {order.priceTier === "RESELLER" && <span className="ml-1.5 text-[11px] px-1.5 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-800">Revenda</span>}
                     {order.type === "PICKUP" && " · 🏪 Retirada"}
                   </p>
                 </div>

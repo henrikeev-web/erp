@@ -58,6 +58,128 @@ const prisma = new (PrismaClient as any)({ adapter });
 
 ---
 
+## Multi-unidade (matriz + franquias)
+
+Uma instalação e um banco atendem todas as unidades. `Unit` (`HQ` | `FRANCHISE`, com `slug`) é o tenant.
+
+- **Toda tabela de negócio tem `unitId` obrigatório**: User, Customer, Category, Product, DeliveryZone, Coupon, Order, ThematicMenu, BannerSlide, WhatsAppSession. O catálogo é **por unidade** (a franquia recebe uma cópia do catálogo da matriz); estoque continua 1:1 com o produto.
+- **Unicidades são compostas por unidade**: `[unitId, phone]`, `[unitId, cpf]`, `[unitId, sku]`, `[unitId, slug]` (categoria), `[unitId, code]` (cupom), `[unitId, number]` (pedido). Nunca usar `findUnique({ where: { phone } })`.
+- **A unidade vem do host** (`src/proxy.ts` → header `x-unit-slug`, sempre sobrescrito): `cidade.banguelas.com.br` → `cidade`; `cardapio.*`, `www.*` e `localhost` → `matriz`. Em dev use `cidade.localhost:3000`. Ler com `getCurrentUnit()` (`src/lib/unit.ts`).
+- **TODA rota nova deve escopar por unidade.** O client Prisma é `any`, então o TypeScript **não avisa** de query sem `unitId`. Helpers em `src/lib/api-auth.ts`:
+  - `requireStaff(roles?)` — painel: exige SUPER_ADMIN/ADMIN/STAFF **da unidade do host** (SUPER_ADMIN acessa qualquer uma). Retorna `{ unit }` ou `NextResponse` (401/403).
+  - `resolveUnit()` — rotas públicas (cardápio, checkout).
+  - `requireStaffOrAgent()` — só para leitura do print-agent (Bearer por unidade).
+  - `whatsappAuthOk()` / `resolveUnitBySlugParam()` — bot n8n (`?unit=slug`, padrão `matriz`). Sem `WHATSAPP_API_KEY` só é aceito fora de produção.
+  - Nunca repassar o body cru ao Prisma: remover `id`, `unitId`, `brandId`.
+  - Update/delete: `where: { id, unitId: unit.id }`.
+- **Marca e regras de fidelidade são da rede**: qualquer unidade lê, só a matriz (`unit.type === "HQ"`) edita. **Módulo Escola/NFS-e é exclusivo da matriz.**
+- **Pedido**: criar SEMPRE por `createOrder()` (`src/lib/order-service.ts`). Ele valida posse (cliente/endereço/zona/produto/cupom da unidade), preço do servidor, cupom (regras + uso atômico), estoque (baixa atômica, sem negativo), lock consultivo por unidade para o número sequencial, fidelidade e evento SSE. Tudo numa transação.
+- **Checkout público**: `POST /api/checkout` (cliente + endereço + pedido numa chamada). `POST /api/pedidos` é só do painel.
+- **SSE** (`/api/admin/events`) entrega só eventos da unidade do painel (`AdminEvent.unitId`).
+- **Sessão de cliente** (`getCustomerSession`) só vale na unidade do JWT (`session.user.unitId`).
+- **print-agent**: `PRINT_AGENT_KEY` = HMAC(`PRINT_AGENT_SECRET`, slug). Gerar com `npx tsx scripts/print-agent-key.ts <slug>`.
+- **Scripts**: `prisma/backfill-unit.ts` associa dados existentes à matriz (rodar entre os dois passos de `db push` ao migrar um banco antigo). `prisma/reset-catalog.ts [slug]` só apaga a unidade informada (padrão matriz).
+
+- **Login Google (só clientes)**: o callback do OAuth só existe no `AUTH_HOST` (`NEXTAUTH_URL`). Fluxo: `/api/minha-conta/google/start` (na unidade, redireciona ao `AUTH_HOST` levando o slug; no `AUTH_HOST` grava o cookie `bg_login` {unit, returnTo}) → `/minha-conta/login/google` (`signIn("google")`) → callback → `jwt` acha o cliente por `googleId` ou e-mail verificado **na unidade do cookie** → `/api/minha-conta/google/finish` devolve à origem da unidade (destino montado no servidor; `returnTo` só aceita caminho interno). Cliente novo fica com sessão `CUSTOMER_PENDING` até `/minha-conta/completar-cadastro` (telefone): o `update()` só promove se o cliente existir na mesma unidade com o **mesmo googleId** do token. Telefone de conta com senha/Google nunca é "assumido". Em produção `COOKIE_DOMAIN=.banguelas.com.br` compartilha a sessão entre subdomínios; sem ela, cada host tem sua sessão.
+- **URIs no Google Cloud**: redirect `https://<AUTH_HOST>/api/auth/callback/google` (+ `http://localhost:3000/api/auth/callback/google` em dev).
+
+- **Dados internos do produto** (`barcode`, `ncm`, `packWeightG`, `packLengthCm/WidthCm/HeightCm` — `src/lib/product-fields.ts`): **nunca no público.** Toda consulta pública de produto usa `omit: PUBLIC_PRODUCT_OMIT` (API `/api/produtos` sem login, página `/cardapio` — que serializa o produto inteiro para o navegador — e o cardápio temático). Ao criar nova consulta pública de `Product`, incluir o `omit`. POST/PUT validam com `parseInternalFields` (EAN/GTIN com dígito verificador, NCM de 8 dígitos). `weight` (antigo) é o peso do conteúdo; `packWeightG` é o da embalagem.
+
+Variáveis: `BASE_DOMAIN`, `AUTH_HOST`, `COOKIE_DOMAIN` (prod, `.banguelas.com.br`), `PRINT_AGENT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+
+---
+
+## Revendedores, preço de revenda e pedido manual
+
+**REGRA DE SIGILO (inegociável): o preço de revenda (`Product.resalePrice`) só pode chegar ao navegador de um REVENDEDOR cadastrado e logado. Nunca a outro cliente, visitante, WhatsApp ou API pública.**
+
+- **Quem é revendedor**: `Customer.type = RESELLER`. **Só ADMIN cadastra** (`POST /api/clientes` com `type`) ou muda o tipo (`PUT`), e só ADMIN define/redefine a senha (`POST /api/clientes/[id]/senha`; a senha provisória é mostrada UMA vez). O revendedor **não se cadastra sozinho**: `register`, Google (`completar`) e checkout de visitante recusam qualquer conta que não seja `RETAIL` (mesma mensagem de "conta existente", para não revelar quem é revendedor).
+- **Nível de preço é decidido no servidor** por `getSessionPricing()` (`src/lib/pricing.ts`): sessão de cliente da unidade + `Customer.type` lido **do banco a cada request** (revogar vale na hora). Nunca de body, query, cookie ou header.
+- **Como o preço sai**: `resalePrice` está em `INTERNAL_PRODUCT_FIELDS` → **toda consulta pública de produto usa `omit: productOmitFor(tier)`** e passa por `applyTierPricing()`, que converte para `price` (revenda, ou o normal se o produto não tiver) e **remove** `resalePrice`/`priceOriginal`. Vale para `/api/produtos`, `/cardapio` (props serializadas no HTML), cardápio temático. WhatsApp é sempre varejo. Ao criar nova consulta pública de `Product`, incluir o omit.
+- **Cobrança**: `createOrder({ pricing })` — o storefront passa o nível da sessão; `BY_CUSTOMER` só no painel (pedido manual segue o tipo do cliente escolhido); `RESELLER` exige cliente `RESELLER`. Revenda: sem cupom, sem pontos de fidelidade.
+- **Faturado** (`paymentMethod: "INVOICE"`, só cliente não-varejo): prazo escolhido **por pedido**, contado da data do pedido. Loja: `RESELLER_INVOICE_DAYS` (7/14/21/28, `src/lib/invoice-terms.ts`); pedido manual: 1–120. Gera `FinancialEntry` RECEIVABLE (`source: ORDER`, `sourceKey: order:<id>`). Entregar **não** marca como pago; baixar a conta a receber atualiza o `Payment`; cancelar o pedido cancela a conta a receber. Total 0 (100% de desconto) não gera conta e nasce quitado.
+- **Pedido manual** (`/admin/pedidos/novo`, `POST /api/pedidos`, qualquer staff): cliente existente ou novo, desconto em % (≤ 100) ou valor sobre o **pedido inteiro (itens + frete)** — não acumula com cupom —, já **entra em produção** (`initialStatus`), `createdBy` e `discountNote` gravados, opção "já recebido".
+- **Carrinho** (localStorage): `syncPrices` realinha os preços a cada carga do cardápio e o carrinho é limpo ao sair — preços de revenda não ficam no navegador do próximo usuário. O servidor sempre recalcula.
+- `passwordHash` nunca vai em respostas (`omit`).
+- Testes que valem repetir ao mexer aqui: varrer `/api/produtos`, `/cardapio`, `/api/whatsapp/cardapio`, `/minha-conta/*` como visitante e cliente comum (com headers/cookies forjados) procurando o valor e `resalePrice`.
+
+---
+
+## Franquias (gestão da rede)
+
+`/admin/franquias` — **só administrador da MATRIZ** (`requireHQAdmin`; a franquia recebe 403). Uma franquia é uma `Unit` `FRANCHISE`. **Cadastrar franqueado** (`POST /api/franquias`, também via Clientes → Novo → Franqueado) cria de uma vez, numa transação: a unidade (**link de acesso** = `slug`, em `slug.BASE_DOMAIN`), o franqueado como `Customer` `FRANCHISEE` da matriz (`franchiseUnitId`), os **usuários do painel da franquia** (ADMIN/STAFF, senha provisória exibida UMA vez; login em `slug.dominio/admin/login`) e — opcional — a cópia do catálogo. Se qualquer dado conflitar (link, e-mail, telefone, CPF/CNPJ) nada fica criado.
+
+- **Link**: slug validado (`isValidSlug`) e não pode ser reservado (`RESERVED_SLUGS`: www, cardapio, admin, api, matriz…); não muda depois. Desativar a franquia derruba o link na hora (`clearUnitCache`); nada é apagado.
+- **Usuários** (`/api/franquias/[id]/usuarios`): criar, redefinir senha, ativar/desativar, mudar perfil — só pela matriz. A franquia **nunca fica sem administrador ativo**. `User.email` é único na rede.
+- **Catálogo** (`src/lib/catalog-sync.ts`): a franquia tem a sua **cópia** (`Product/Category` com `unitId` próprio, ligada por `sourceProductId`/`sourceCategoryId`). `syncCatalogToUnit` cria o que falta e atualiza conteúdo (nome, descrição, ingredientes, categoria, fotos, combos), **sem tocar** em estoque (nasce zerado), preço de revenda, nem preço personalizado (`priceCustom`). Matriz desativa → franquia desativa (reativar é da franquia). Dispara **sozinho** (`scheduleCatalogSync`, agrupa 2,5 s) após qualquer alteração de produto/categoria/combo/foto NA MATRIZ — toda rota nova que altere o catálogo da matriz deve chamá-lo — e manualmente em Gerenciar → Sincronizar.
+- **Na franquia**: produto/combo copiado da rede só aceita **preço**, ativo e destaque (o resto vem da matriz e seria sobrescrito); mudar o preço marca `priceCustom`. Produtos criados localmente (sem `sourceProductId`) são livres. Estoque, pedidos, clientes, financeiro, entregadores e zonas são da franquia.
+- **Visibilidade no menu**: Franquias e Escola/NFS-e só na matriz (`hqOnly`).
+
+---
+
+## Combos personalizados
+
+Combo = `Product` com `kind: COMBO`: **preço fixo**, **quantidade EXATA** (`comboSize`, ex.: 20) e uma lista de produtos do cardápio (`ComboItem`, com `maxQty` opcional por produto). O cliente distribui a quantidade entre os produtos; sem limite indicado, vale qualquer quantidade até completar o total. Cadastro em `/admin/combos` (qualquer staff).
+
+- **Regras** em `src/lib/combo.ts` (módulo puro, usado pelo servidor e pelo construtor da loja): `validatePicks` (soma exata, limite por produto, sem estoque, produto de fora), `isComboAvailable`, `validateComboDefinition` (os limites precisam permitir fechar a quantidade). Teste: `npx tsx scripts/test-combo.ts`.
+- **Pedido** (`createOrder`): item de combo traz `combo: [{productId, quantity}]` (por unidade do combo). Cada combo é linha própria (não funde). Preço = `Product.price` do combo — **sem preço de revenda** (revendedor paga o preço do combo; `applyTierPricing` e o PUT de produto ignoram `resalePrice` em combo). O que foi escolhido fica em `OrderItemComponent` (já multiplicado pela quantidade da linha).
+- **Estoque**: baixa dos produtos INDIVIDUAIS, **somando tudo que o pedido consome por produto** (avulsos + componentes de todos os combos) numa checagem atômica; combo não tem `StockItem`. Sem estoque suficiente → 409 e o pedido inteiro é desfeito.
+- **Cardápio**: produtos COMBO recebem `combo: { size, available, options[] }` (`src/lib/combo-data.ts`) só com nome, limite, estoque e foto — **nenhum preço de componente**. Produto sem estoque aparece apagado com "sem estoque"; combo sem como ser montado fica "esgotado". WhatsApp não vende combo (fora do cardápio do bot; pedido é recusado).
+- **Carrinho**: cada combo montado é uma linha (`lineId`, `combo`, `comboSummary`, quantidade fixa 1). Funções de produto simples ignoram linhas de combo.
+- **Produção/expedição**: a cozinha prepara os **componentes**, não "o combo" — lista consolidada do kanban, romaneio, tela do pedido, impressora térmica e histórico do cliente mostram a composição. Ao criar telas que listem itens de pedido, incluir `components`.
+- **Cancelar pedido devolve o estoque** (avulsos + componentes de combo) na mesma transação (`restoreOrderStock`), registra movimentação IN "Cancelamento do pedido #N", cancela o pagamento pendente e a conta a receber do faturado. A troca de status é reivindicada atomicamente: cancelamentos simultâneos devolvem uma vez. Pedido entregue não cancela; cancelado não reabre.
+
+---
+
+## Entregadores
+
+Cadastro em `/admin/entregadores` (abas Relatório e Cadastro) — **só ADMIN**; o entregador **não acessa o sistema**. STAFF apenas escolhe o entregador no pedido (`GET /api/entregadores` sem PIX/CPF).
+
+- **Pagamento**: por entrega, valor por **região** em `DeliveryZone.courierFee` (só ADMIN define; o custo já está dentro da taxa cobrada do cliente). Ao escolher o entregador o valor é **copiado para `Order.courierFee`** (snapshot: reajustar a zona depois não muda entregas passadas; trocar de entregador mantém o valor original).
+- **Regra do servidor** (`PATCH /api/pedidos/[id]`, `createOrder`): pedido de **ENTREGA** não vai para `IN_PRODUCTION`/`READY`/`DISPATCHED`/`DELIVERED` sem entregador → 409 `code: "COURIER_REQUIRED"`. Retirada não usa (400 se informar). Pedido manual de entrega exige `courierId`. Não troca entregador de pedido entregue/cancelado. UI: `useOrderStatus` (`CourierPicker.tsx`) abre o seletor sozinho ao receber o `COURIER_REQUIRED` — usado na lista de pedidos, kanban de produção e página do pedido. Toda nova tela que mude status deve usá-lo.
+- **Relatório**: entregas **ENTREGUES** por dia da entrega em **horário de Brasília** (`brDate`/`brRange` em `src/lib/courier.ts`; a coluna é `timestamp` sem fuso, guarda UTC). Sem dados do cliente (só bairro) — o relatório imprimível (`/api/entregadores/[id]/relatorio`) é entregue ao entregador. Mostra taxa cobrada × custo.
+- **Financeiro diário**: `syncCourierPayables` fecha os dias **já encerrados**: uma conta a pagar por (entregador, dia) — `source COURIER`, `sourceKey courier:<id>:<dia>`, centro de custo "Entregadores", vencimento no dia. Dia corrente entra na virada. Idempotente, sob demanda (financeiro/relatório, no máx. a cada 30 s/unidade), **sem cron**, janela de 90 dias. Conta ABERTA é recalculada/removida se as entregas mudarem; **PAGA ou CANCELADA nunca é tocada**; valor/vencimento não são editáveis (vêm da origem); não exclui (cancela).
+- **SIGILO**: `courierFee`/`courierId`/`createdBy`/`discountNote` são internos. Zonas públicas e `/api/cep` usam `omit: { courierFee: true }`; `/api/zonas-entrega?todas=true` (painel) só devolve o custo a ADMIN; histórico do cliente e resposta do checkout removem os campos do pedido. Ao criar rota pública que devolva zona ou pedido, aplicar o `omit`.
+
+---
+
+## Financeiro (contas a pagar / a receber)
+
+Tela `/admin/financeiro` (abas: Resumo, A pagar, A receber, Recorrentes, Fornecedores, Centros de custo). **Só ADMIN/SUPER_ADMIN** (`requireStaff(["SUPER_ADMIN","ADMIN"])` nas APIs e guarda no servidor na página); STAFF não vê. Tudo por unidade.
+
+- **Modelos**: `FinancialEntry` (a pagar e a receber num só: `type` PAYABLE|RECEIVABLE; `status` OPEN|PAID|CANCELLED; "vencido" é calculado = OPEN com `dueDate` < hoje), `RecurringEntry` (modelo da recorrência), `Supplier`, `CostCenter`. `FinancialEntry.source` (MANUAL|RECURRING|ORDER|COURIER) + `sourceKey` (único por unidade) tornam a geração automática idempotente — usar para os repasses de entregador e pedidos faturados.
+- **Datas** são "só data" (`@db.Date`), aritmética **em UTC** (`src/lib/financeiro.ts`), e "hoje" é o dia em **America/Sao_Paulo** (`BUSINESS_TZ`), não o do servidor. Filtros de período de pedidos usam `-03:00`.
+- **Recorrência**: `every` + `period` (DAY|WEEK|MONTH|YEAR) — a UI expõe Semanal/Mensal/Anual/Personalizada (a cada N…). Cada cobrança é calculada a partir da data inicial (dia 31 mensal → último dia dos meses curtos, sem "grudar" no 28). `materializeRecurring(unitId)` gera até hoje + 60 dias, é idempotente (`@@unique([recurringId, dueDate])`) e roda em toda consulta de lançamentos/resumo — **não há cron**.
+- **Editar recorrência**: mudar valor/descrição/vínculos atualiza as cobranças em aberto de hoje em diante (sobrescreve edição individual); mudar frequência/datas ou pausar remove só as **estritamente futuras** em aberto e regenera. Pagas, vencidas e a que vence hoje não são tocadas.
+- **Regras**: lançamento pago fica travado (reabrir para editar); ocorrência de recorrência e lançamentos automáticos **não se excluem** (recriaria) — cancelar; só MANUAL não pago pode ser excluído. Fornecedor/centro de custo com histórico são desativados em vez de excluídos. Parcelamento: `amount` é o total, dividido igualmente com a última parcela absorvendo os centavos.
+- **Pendente**: visão consolidada da matriz (todas as unidades) virá com o dashboard das franquias; integrar repasse de entregadores (item 4) e faturamento de revendedores (item 6) via `source`/`sourceKey`.
+
+---
+
+## Rede de franquias: reposição, avisos, premiações e dashboard
+
+- **Reposição** (`/admin/reposicao`, só ADMIN de franquia; `/api/reposicao/*`): a franquia pede produtos à matriz. O pedido nasce **na matriz** (`unitId` da matriz) em nome do franqueado (`Customer FRANCHISEE.franchiseUnitId`), com `priceTier FRANCHISE`: preço `franchisePrice → resalePrice → price` (**franchisePrice é sigiloso**: está em `INTERNAL_PRODUCT_FIELDS` e nunca é copiado para a franquia nem devolvido em rota pública), sem cupom, sem pontos, sem combo. Pagamento faturado (7/14/21/28 dias → conta a receber na matriz) ou PIX. A matriz atende pelo fluxo normal (lista tem filtro/etiqueta "Reposição"). **Ao marcar ENTREGUE**, `receiveReplenishment` dá entrada no estoque da franquia (mapeia por `sourceProductId`; sincroniza o catálogo se o produto ainda não existir lá); idempotente via `Order.restockedAt` reivindicado na mesma transação; cancelar antes de entregar só devolve o estoque da matriz. Também há histórico, "repetir pedido", lançamentos (produtos da matriz com menos de 45 dias) e "mais pedidos pelas outras franquias" (só produto e nº de franquias — **nunca identifica a franquia**).
+- **Avisos** (`/admin/avisos` na matriz; `Announcement`): `POPUP` abre ao entrar no painel da franquia (uma vez **por usuário**, até "Entendi") e `NOTICE` fica no sino (`AnnouncementsHost`, montado em `layout.tsx` só para franquias). Para todas as franquias ou só as escolhidas; janela de datas; "lido por X de Y". `/api/meus-avisos` devolve só o que a unidade pode ver.
+- **Premiações** (`/admin/premiacoes`; `Award`/`AwardGrant`): meta por **nº de pedidos** ou **faturamento**, janela opcional, prêmio em texto. Conta pedidos da franquia **não cancelados**; a conquista é registrada uma vez por (premiação, franquia) no instante em que a meta foi cruzada (`computeProgress`, teste: `npx tsx scripts/test-awards.ts`) e gera **pop-up de parabéns** só para aquela franquia. Avaliada a cada pedido da franquia (`createOrder`, sem atrasar o pedido), ao criar/editar a premiação e em "Reavaliar agora". Editar a meta ou cancelar pedidos **não revoga**. A matriz marca "prêmio entregue". A franquia só vê o próprio progresso.
+- **Dashboard da rede** (`/admin/rede`, só admin da matriz; `/api/rede/dashboard`): por unidade, no período e comparado ao anterior de mesmo tamanho — vendas, pedidos, ticket, cancelamento, clientes novos, estoque baixo, financeiro em aberto/vencido e série diária. **Venda = pedido de consumidor não cancelado; a reposição (`priceTier FRANCHISE`) fica à parte** e não conta como venda da matriz nem da franquia.
+
+---
+
+## Ambiente de demonstração (navegar por tudo sem tocar em produção)
+
+`prisma/demo.ts` popula um banco **local de teste** com dados de todas as funcionalidades (revendedor, combo, entregadores com relatório, financeiro, pedido cancelado, franquia "Ribeirão Preto" com usuários). **Recusa rodar** se `DATABASE_URL` não for local com nome contendo demo/dev/test.
+
+```bash
+docker exec erp-dev-db psql -U postgres -c "create database erp_demo"      # container postgres local de teste (porta 5433)
+export DATABASE_URL=postgresql://postgres:dev@localhost:5433/erp_demo
+npx prisma db push && npx tsx prisma/seed.ts && npx tsx prisma/demo.ts      # imprime os logins (senha demo1234)
+npx next build
+env DATABASE_URL=$DATABASE_URL NEXTAUTH_URL=http://localhost:3000 NEXTAUTH_SECRET=demo BASE_DOMAIN= AUTH_HOST= COOKIE_DOMAIN= npx next start -H 127.0.0.1 -p 3000
+```
+Acesso de fora: túnel SSH `ssh -L 3000:127.0.0.1:3000 usuario@servidor` e abrir `http://localhost:3000` (matriz) e `http://ribeirao.localhost:3000` (franquia; Chrome/Edge/Firefox resolvem `*.localhost`). As variáveis `BASE_DOMAIN`/`AUTH_HOST`/`COOKIE_DOMAIN` ficam vazias no demo (localhost).
+
+---
+
 ## Infraestrutura Docker
 
 O projeto roda inteiramente em Docker. Três containers definidos em `docker-compose.yml`:
@@ -613,6 +735,6 @@ Os produtos e categorias reais da Banguelas foram importados via `prisma/reset-c
 - [x] NFS-e mensal para pais de escola — integração direta GissOnline ABRASF 2.04 (SJRP)
 - [ ] NFCe por pedido via SEFAZ (estrutura `FiscalDocument` já existe no schema)
 - [ ] Fluxo n8n para WhatsApp bot (Evolution API + Gemini + endpoints `/api/whatsapp/*`)
-- [ ] Multi-unidade / franqueados (modelo `Brand` já suporta)
+- [ ] Multi-unidade / franqueados — fase 0 feita (Unit + unitId + escopo das rotas); login Google feito; cadastro de franqueado/link/usuários, sync de catálogo, reposição, avisos/pop-ups, premiações e dashboard da rede feitos
 - [ ] Segunda marca "Minuto Menu" (mesma stack, nova Brand no banco)
 - [ ] Deploy em VPS (PM2 + Nginx + Let's Encrypt) — volume persistente para `public/uploads/` + `print-agent` rodando como serviço separado

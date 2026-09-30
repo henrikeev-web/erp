@@ -17,11 +17,15 @@ interface ProductImage {
 }
 
 interface Product {
+  kind?: string;
   id: string; name: string; description: string | null;
   price: number; priceOriginal: number | null;
   ageMin: number | null; ageMax: number | null;
   featured: boolean; active: boolean; frozen: boolean;
   categoryId: string | null;
+  resalePrice: number | null; franchisePrice: number | null;
+  barcode: string | null; ncm: string | null; packWeightG: number | null;
+  packLengthCm: number | null; packWidthCm: number | null; packHeightCm: number | null;
   images: ProductImage[];
   category: { id: string; name: string } | null;
   stockItem: { quantity: number; minQuantity: number } | null;
@@ -33,7 +37,12 @@ interface EditForm {
   name: string; description: string; price: string; priceOriginal: string;
   ageMin: string; ageMax: string; categoryId: string;
   featured: boolean; active: boolean; frozen: boolean;
+  resalePrice: string; franchisePrice: string;
+  barcode: string; ncm: string; packWeightG: string;
+  packLengthCm: string; packWidthCm: string; packHeightCm: string;
 }
+
+const numStr = (v: number | null) => (v !== null && v !== undefined ? String(v) : "");
 
 function productToForm(p: Product): EditForm {
   return {
@@ -47,10 +56,20 @@ function productToForm(p: Product): EditForm {
     featured: p.featured,
     active: p.active,
     frozen: p.frozen,
+    resalePrice: numStr(p.resalePrice),
+    franchisePrice: numStr(p.franchisePrice),
+    barcode: p.barcode ?? "",
+    ncm: p.ncm ?? "",
+    packWeightG: numStr(p.packWeightG),
+    packLengthCm: numStr(p.packLengthCm),
+    packWidthCm: numStr(p.packWidthCm),
+    packHeightCm: numStr(p.packHeightCm),
   };
 }
 
 export default function ProdutosPage() {
+  const [isHQ, setIsHQ] = useState(false);
+  useEffect(() => { axios.get("/api/unit").then(({ data }) => setIsHQ(data.type === "HQ")).catch(() => setIsHQ(false)); }, []);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [search, setSearch] = useState("");
@@ -195,11 +214,20 @@ export default function ProdutosPage() {
         featured: form.featured,
         active: form.active,
         frozen: form.frozen,
+        resalePrice: form.resalePrice,
+        franchisePrice: form.franchisePrice,
+        barcode: form.barcode,
+        ncm: form.ncm,
+        packWeightG: form.packWeightG,
+        packLengthCm: form.packLengthCm,
+        packWidthCm: form.packWidthCm,
+        packHeightCm: form.packHeightCm,
       });
       closeEdit();
       load();
-    } catch {
-      alert("Erro ao salvar produto.");
+    } catch (err) {
+      // Erros de validação (EAN/NCM inválidos, duplicado) vêm com mensagem em português
+      alert(axios.isAxiosError(err) && err.response?.data?.error ? err.response.data.error : "Erro ao salvar produto.");
     } finally {
       setSaving(false);
     }
@@ -464,6 +492,66 @@ export default function ProdutosPage() {
                 <div>
                   <label className="text-xs font-medium text-zinc-600 mb-1.5 block">Idade máxima (meses)</label>
                   <Input type="number" min="0" value={form.ageMax} onChange={e => setField("ageMax", e.target.value)} placeholder="Ex: 24" />
+                </div>
+              </div>
+
+              {editProduct?.kind === "COMBO" ? (
+                <p className="text-xs text-zinc-500 bg-zinc-50 rounded-xl px-3 py-2">Este é um <strong>combo</strong>: a composição, a quantidade e os limites ficam em <strong>Combos</strong>. Não há preço de revenda para combo.</p>
+              ) : (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                <div>
+                  <p className="text-xs font-semibold text-amber-900">Preço de revenda (R$)</p>
+                  <p className="text-[11px] text-amber-800">Valor fixo para todos os revendedores. Só revendedores cadastrados e logados enxergam — nunca aparece para clientes, no cardápio nem no WhatsApp. Em branco = o revendedor paga o preço normal.</p>
+                </div>
+                <Input type="number" step="0.01" min="0" value={form.resalePrice} onChange={e => setField("resalePrice", e.target.value)} placeholder="Ex: 9,90" />
+                {form.resalePrice && form.price && parseFloat(form.resalePrice) > parseFloat(form.price) && (
+                  <p className="text-[11px] text-red-600">Atenção: o preço de revenda está maior que o preço de venda.</p>
+                )}
+              </div>
+              )}
+
+              {isHQ && editProduct?.kind !== "COMBO" && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-3 space-y-2">
+                  <div>
+                    <p className="text-xs font-semibold text-blue-900">Preço para franqueado (R$)</p>
+                    <p className="text-[11px] text-blue-800">Preço da reposição: o que a franquia paga ao pedir este produto à matriz. Só o painel da franquia (administrador) e a matriz enxergam — nunca o cliente. Em branco = vale o preço de revenda e, sem ele, o de venda.</p>
+                  </div>
+                  <Input type="number" step="0.01" min="0" value={form.franchisePrice} onChange={e => setField("franchisePrice", e.target.value)} placeholder="Ex: 8,50" />
+                </div>
+              )}
+
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold text-zinc-700">Dados internos</p>
+                  <p className="text-[11px] text-zinc-500">Uso interno (logística e fiscal). Não aparecem no cardápio.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-zinc-600 mb-1.5 block">Código de barras (EAN)</label>
+                    <Input inputMode="numeric" value={form.barcode} onChange={e => setField("barcode", e.target.value.replace(/\D/g, "").slice(0, 14))} placeholder="7891234567895" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-zinc-600 mb-1.5 block">NCM</label>
+                    <Input inputMode="numeric" value={form.ncm} onChange={e => setField("ncm", e.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="8 dígitos" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-zinc-600 mb-1.5 block">Peso emb. (g)</label>
+                    <Input type="number" min="0" value={form.packWeightG} onChange={e => setField("packWeightG", e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-zinc-600 mb-1.5 block">Compr. (cm)</label>
+                    <Input type="number" min="0" step="0.1" value={form.packLengthCm} onChange={e => setField("packLengthCm", e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-zinc-600 mb-1.5 block">Larg. (cm)</label>
+                    <Input type="number" min="0" step="0.1" value={form.packWidthCm} onChange={e => setField("packWidthCm", e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-zinc-600 mb-1.5 block">Alt. (cm)</label>
+                    <Input type="number" min="0" step="0.1" value={form.packHeightCm} onChange={e => setField("packHeightCm", e.target.value)} />
+                  </div>
                 </div>
               </div>
 

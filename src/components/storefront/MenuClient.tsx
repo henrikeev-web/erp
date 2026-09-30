@@ -7,6 +7,8 @@ import { useCart } from "@/store/cart";
 import { formatCurrency, ageLabel } from "@/lib/utils";
 import CartDrawer from "./CartDrawer";
 import CheckoutModal from "./CheckoutModal";
+import ComboBuilder from "@/components/ComboBuilder";
+import type { PublicCombo } from "@/lib/combo-data";
 
 interface BannerSlide {
   id: string;
@@ -23,6 +25,8 @@ interface MenuClientProps {
     bannerBgColor: string | null; bannerBadges: string[];
   };
   bannerSlides: BannerSlide[];
+  /** Nível de preço desta sessão, decidido no servidor. RESELLER = revendedor cadastrado e logado. */
+  pricingTier?: "RETAIL" | "RESELLER";
   categories: { id: string; name: string; slug: string; ageMin: number | null; ageMax: number | null }[];
   products: {
     id: string; name: string; description: string | null; price: number; priceOriginal: number | null;
@@ -32,6 +36,8 @@ interface MenuClientProps {
     images: { id: string; url: string; alt: string | null; isMain: boolean }[];
     category: { id: string; name: string; slug: string } | null;
     stockItem: { quantity: number } | null;
+    kind?: "SIMPLE" | "COMBO";
+    combo?: PublicCombo;
   }[];
   thematicMenus: {
     id: string; name: string; description: string | null; imageUrl: string | null;
@@ -78,13 +84,14 @@ function CheckIcon({ color = "#62C1B1" }: { color?: string }) {
   );
 }
 
-export default function MenuClient({ brand, bannerSlides, categories, products }: MenuClientProps) {
+export default function MenuClient({ brand, bannerSlides, categories, products, pricingTier = "RETAIL" }: MenuClientProps) {
   const [search, setSearch] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<typeof products[0] | null>(null);
   const [selectedQty, setSelectedQty] = useState(1);
   const [cartOpen, setCartOpen] = useState(false);
   const [filterCat, setFilterCat] = useState<string | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [builder, setBuilder] = useState<MenuClientProps["products"][0] | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -99,7 +106,12 @@ export default function MenuClient({ brand, bannerSlides, categories, products }
     return () => clearInterval(t);
   }, [activeSlides.length, slidePaused]);
 
-  const { items, add, remove, updateQty, itemCount, subtotal } = useCart();
+  const { items, add, addCombo, remove, updateQty, itemCount, subtotal, syncPrices } = useCart();
+
+  // Carrinho guardado no navegador pode ter preços de outra conta: alinha com o que o servidor enviou agora
+  useEffect(() => {
+    syncPrices(Object.fromEntries(products.map((p) => [p.id, p.price])));
+  }, [products, syncPrices]);
 
   const productColorMap = useMemo(() => {
     const map = new Map<string, { color: string; tint: string }>();
@@ -131,10 +143,11 @@ export default function MenuClient({ brand, bannerSlides, categories, products }
   }
 
   function getCartQty(productId: string) {
-    return items.find((i) => i.product.id === productId)?.quantity ?? 0;
+    return items.find((i) => i.product.id === productId && !i.combo)?.quantity ?? 0;
   }
 
   function isOutOfStock(p: typeof products[0]) {
+    if (p.kind === "COMBO") return !p.combo?.available; // combo só some da venda se não dá para montar (produtos sem estoque)
     return p.stockItem !== null && p.stockItem.quantity <= 0;
   }
 
@@ -151,6 +164,7 @@ export default function MenuClient({ brand, bannerSlides, categories, products }
   }
 
   function handleAdd(p: typeof products[0]) {
+    if (p.kind === "COMBO") { setBuilder(p); return; }
     const result = add(cartProduct(p));
     if (result === "stock_limit") {
       showToast(`Limite de estoque atingido para ${p.name}`);
@@ -161,6 +175,7 @@ export default function MenuClient({ brand, bannerSlides, categories, products }
 
   function handleAddSelected() {
     if (!selectedProduct) return;
+    if (selectedProduct.kind === "COMBO") { setBuilder(selectedProduct); setSelectedProduct(null); return; }
     const result = add(cartProduct(selectedProduct), selectedQty);
     if (result === "stock_limit") {
       showToast(`Limite de estoque atingido para ${selectedProduct.name}`);
@@ -209,6 +224,12 @@ export default function MenuClient({ brand, bannerSlides, categories, products }
       `}</style>
 
       <div style={{ minHeight: "100vh", fontFamily: "'Poppins',sans-serif", color: "#4A3526" }}>
+
+        {pricingTier === "RESELLER" && (
+          <div style={{ background: "#4A3526", color: "#FAD200", textAlign: "center", fontSize: 13, fontWeight: 600, padding: "7px 12px" }}>
+            Você está vendo os preços de revenda
+          </div>
+        )}
 
         {/* ── HEADER ── */}
         <header style={{ position: "sticky", top: 0, zIndex: 40, background: "rgba(251,246,236,.92)", backdropFilter: "blur(12px)", borderBottom: "2px solid #F0E7D6" }}>
@@ -553,17 +574,20 @@ export default function MenuClient({ brand, bannerSlides, categories, products }
 
                   {/* Qty + Add */}
                   <div style={{ marginTop: "auto", paddingTop: 6, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#fff", border: "2px solid #EBDDC8", borderRadius: 14, padding: 5 }}>
+                    {selectedProduct.kind !== "COMBO" && <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#fff", border: "2px solid #EBDDC8", borderRadius: 14, padding: 5 }}>
                       <button onClick={() => setSelectedQty((q) => Math.max(1, q - 1))} style={{ width: 38, height: 38, border: "none", background: "#F7EEDF", color: "#4A3526", borderRadius: 10, fontSize: 22, fontWeight: 700, cursor: "pointer", lineHeight: 0 }}>−</button>
                       <span style={{ minWidth: 34, textAlign: "center", fontFamily: "'Baloo 2',sans-serif", fontWeight: 700, fontSize: 19, color: "#4A3526" }}>{selectedQty}</span>
                       <button onClick={() => setSelectedQty((q) => q + 1)} style={{ width: 38, height: 38, border: "none", background: "#F7EEDF", color: "#4A3526", borderRadius: 10, fontSize: 22, fontWeight: 700, cursor: "pointer", lineHeight: 0 }}>+</button>
-                    </div>
+                    </div>}
                     <button
                       className="bgl-btn-primary"
                       style={{ flex: 1, minWidth: 180, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
                       onClick={handleAddSelected}
+                      disabled={selectedProduct.kind === "COMBO" && !selectedProduct.combo?.available}
                     >
-                      Adicionar {selectedQty} • {formatCurrency(selTotal)}
+                      {selectedProduct.kind === "COMBO"
+                        ? (selectedProduct.combo?.available ? `Montar meu combo • ${formatCurrency(selectedProduct.price)}` : "Sem estoque")
+                        : <>Adicionar {selectedQty} • {formatCurrency(selTotal)}</>}
                     </button>
                   </div>
                 </div>
@@ -590,7 +614,23 @@ export default function MenuClient({ brand, bannerSlides, categories, products }
           deliveryFee={deliveryFee}
           showFreeHint={showFreeHint}
         />
-        <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} brandId={brand.id} />
+        {builder && builder.combo && (
+          <ComboBuilder
+            name={builder.name}
+            size={builder.combo.size}
+            price={builder.price}
+            options={builder.combo.options}
+            onClose={() => setBuilder(null)}
+            onConfirm={(picks) => {
+              const summary = picks.map((pk) => `${pk.quantity}× ${builder.combo!.options.find((o) => o.productId === pk.productId)?.name ?? ""}`).join(" · ");
+              addCombo(cartProduct(builder), picks, summary);
+              showToast(`${builder.name} adicionado!`);
+              setBuilder(null);
+            }}
+          />
+        )}
+
+        <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} brandId={brand.id} isReseller={pricingTier === "RESELLER"} />
       </div>
     </>
   );

@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireStaff } from "@/lib/api-auth";
 
 export async function GET() {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
+
   const coupons = await prisma.coupon.findMany({
+    where: { unitId: auth.unit.id },
     include: { _count: { select: { orders: true } } },
     orderBy: { createdAt: "desc" },
   });
@@ -10,14 +15,17 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
+  const { unit } = auth;
+
   try {
     const body = await req.json();
-    const brand = await prisma.brand.findFirst({ where: { slug: "banguelas" } });
-    if (!brand) return NextResponse.json({ error: "Brand não encontrada" }, { status: 404 });
 
     const coupon = await prisma.coupon.create({
       data: {
-        brandId: brand.id,
+        brandId: unit.brandId,
+        unitId: unit.id,
         code: body.code.toUpperCase().trim(),
         description: body.description || null,
         type: body.type,

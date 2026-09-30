@@ -7,8 +7,9 @@ import { ptBR } from "date-fns/locale";
 import { ChefHat, RefreshCw, Check, Package, Clock } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useOrderStatus } from "@/components/admin/CourierPicker";
 
-interface OrderItem { name: string; quantity: number; price: number }
+interface OrderItem { name: string; quantity: number; price: number; components?: { name: string; quantity: number }[] }
 interface Order {
   id: string; number: number; status: string; total: number; createdAt: string;
   scheduledTo: string | null;
@@ -43,12 +44,13 @@ export default function ProducaoPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Pedido de entrega sem entregador: o servidor avisa e o seletor abre sozinho
+  const { change, modal: courierModal } = useOrderStatus(load);
+
   async function advance(order: Order) {
     setUpdating(order.id);
     try {
-      const nextStatus = order.status === "CONFIRMED" ? "IN_PRODUCTION" : "READY";
-      await axios.patch(`/api/pedidos/${order.id}`, { status: nextStatus });
-      load();
+      await change(order.id, order.status === "CONFIRMED" ? "IN_PRODUCTION" : "READY");
     } finally {
       setUpdating(null);
     }
@@ -59,7 +61,8 @@ export default function ProducaoPage() {
 
   const productionMap: Record<string, ProductionItem> = {};
   orders.forEach(order => {
-    order.items.forEach(item => {
+    // Combo: a cozinha prepara os produtos escolhidos (componentes), não "o combo"
+    order.items.flatMap(item => (item.components?.length ? item.components : [item])).forEach(item => {
       if (!productionMap[item.name]) productionMap[item.name] = { name: item.name, totalQty: 0, orders: [] };
       productionMap[item.name].totalQty += item.quantity;
       productionMap[item.name].orders.push({ number: order.number, qty: item.quantity });
@@ -89,7 +92,10 @@ export default function ProducaoPage() {
               <span className="w-6 h-6 bg-orange-100 text-orange-700 rounded-lg flex items-center justify-center text-xs font-bold shrink-0">
                 {item.quantity}
               </span>
-              <span className="text-zinc-700">{item.name}</span>
+              <span className="text-zinc-700">
+                {item.name}
+                {item.components?.length ? <span className="block text-xs text-zinc-400">{item.components.map(c => `${c.quantity}× ${c.name}`).join(" · ")}</span> : null}
+              </span>
             </div>
           ))}
         </div>
@@ -116,6 +122,7 @@ export default function ProducaoPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-6xl mx-auto space-y-5">
+      {courierModal}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Produção</h1>

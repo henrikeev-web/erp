@@ -875,27 +875,34 @@ async function main() {
     throw new Error('Brand "banguelas" não encontrada. Execute o seed.ts primeiro.');
   }
 
+  // Só a unidade informada (padrão: matriz) — nunca as demais franquias.
+  //   npx tsx prisma/reset-catalog.ts [slug-da-unidade]
+  const unitSlug = process.argv[2] ?? "matriz";
+  const unit = await prisma.unit.findUnique({ where: { slug: unitSlug } });
+  if (!unit) throw new Error(`Unidade "${unitSlug}" não encontrada. Execute o seed.ts primeiro.`);
+  console.log(`Unidade alvo: ${unit.name} (${unit.slug})\n`);
+
   // ── 1. Limpar dados dependentes de pedidos ────────────────────────────────
-  const deletedLoyaltyTx = await prisma.loyaltyTransaction.deleteMany({});
+  const deletedLoyaltyTx = await prisma.loyaltyTransaction.deleteMany({ where: { order: { unitId: unit.id } } });
   console.log(`  ✓ Transações de fidelidade removidas: ${deletedLoyaltyTx.count}`);
 
-  const deletedFiscalDocs = await prisma.fiscalDocument.deleteMany({});
+  const deletedFiscalDocs = await prisma.fiscalDocument.deleteMany({ where: { order: { unitId: unit.id } } });
   console.log(`  ✓ Documentos fiscais removidos: ${deletedFiscalDocs.count}`);
 
-  const deletedPayments = await prisma.payment.deleteMany({});
+  const deletedPayments = await prisma.payment.deleteMany({ where: { order: { unitId: unit.id } } });
   console.log(`  ✓ Pagamentos removidos: ${deletedPayments.count}`);
 
-  const deletedItems = await prisma.orderItem.deleteMany({});
+  const deletedItems = await prisma.orderItem.deleteMany({ where: { order: { unitId: unit.id } } });
   console.log(`  ✓ Itens de pedidos removidos: ${deletedItems.count}`);
 
-  const deletedOrders = await prisma.order.deleteMany({});
+  const deletedOrders = await prisma.order.deleteMany({ where: { unitId: unit.id } });
   console.log(`  ✓ Pedidos removidos: ${deletedOrders.count}`);
 
   // ── 2. Limpar produtos e categorias ──────────────────────────────────────
-  const deletedProducts = await prisma.product.deleteMany({});
+  const deletedProducts = await prisma.product.deleteMany({ where: { unitId: unit.id } });
   console.log(`  ✓ Produtos removidos: ${deletedProducts.count}`);
 
-  const deletedCategories = await prisma.category.deleteMany({});
+  const deletedCategories = await prisma.category.deleteMany({ where: { unitId: unit.id } });
   console.log(`  ✓ Categorias removidas: ${deletedCategories.count}`);
 
   console.log("\n🌱 Cadastrando catálogo real...\n");
@@ -904,7 +911,7 @@ async function main() {
   const catIdBySlug: Record<string, string> = {};
 
   for (const cat of CATEGORIES) {
-    const created = await prisma.category.create({ data: cat });
+    const created = await prisma.category.create({ data: { ...cat, unitId: unit.id } });
     catIdBySlug[cat.slug] = created.id;
   }
   console.log(`  ✓ Categorias criadas: ${CATEGORIES.length}`);
@@ -925,6 +932,7 @@ async function main() {
       data: {
         ...productData,
         brandId: brand.id,
+        unitId: unit.id,
         categoryId,
         frozen: true,
       },

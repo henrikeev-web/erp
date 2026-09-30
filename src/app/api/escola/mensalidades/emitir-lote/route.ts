@@ -2,14 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireStaff } from "@/lib/api-auth";
 import { emitirNfse } from "@/lib/nfse";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+// Módulo Escola/NFS-e é exclusivo da matriz (certificado A1 e CNPJ são dela)
 async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  return session?.user.role === "ADMIN" ? session : null;
+  const auth = await requireStaff(["SUPER_ADMIN", "ADMIN"]);
+  return auth instanceof Response || auth.unit.type !== "HQ" ? null : auth;
 }
 
 const MONTH_NAMES = [
