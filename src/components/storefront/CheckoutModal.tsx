@@ -12,7 +12,7 @@ import axios from "axios";
 interface CheckoutModalProps {
   open: boolean;
   onClose: () => void;
-  brandId: string;
+  brandId?: string; // legado: a unidade agora vem do host
 }
 
 type Step = "customer" | "address" | "payment" | "confirm" | "success";
@@ -60,7 +60,7 @@ const PAYMENT_METHODS = [
   { value: "CASH", label: "Dinheiro", icon: "💵", online: false },
 ];
 
-export default function CheckoutModal({ open, onClose, brandId }: CheckoutModalProps) {
+export default function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const { items, subtotal, total, clear, couponCode, discount, setCoupon, clearCoupon } = useCart();
   const { data: session } = useSession();
   const isLoggedIn = session?.user?.role === "CUSTOMER";
@@ -157,7 +157,6 @@ export default function CheckoutModal({ open, onClose, brandId }: CheckoutModalP
     try {
       const { data } = await axios.post("/api/cupons/validar", {
         code: couponInput.trim().toUpperCase(),
-        brandId,
         subtotal: subtotal(),
       });
       setCoupon(data.code, data.discount);
@@ -167,48 +166,29 @@ export default function CheckoutModal({ open, onClose, brandId }: CheckoutModalP
     }
   }
 
-  async function resolveCustomer(): Promise<string> {
-    if (isLoggedIn && session?.user?.id) return session.user.id;
-    const phone = customer.phone.replace(/\D/g, "");
-    try {
-      const { data } = await axios.post("/api/clientes", {
-        brandId,
-        name: customer.name,
-        phone,
-        email: customer.email || undefined,
-      });
-      return data.customerId || data.id;
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err) && err.response?.status === 409) {
-        return err.response.data.customerId;
-      }
-      throw err;
-    }
-  }
-
   async function submitOrder() {
     setLoading(true);
     setError("");
     try {
-      const customerId = await resolveCustomer();
+      // Uma única chamada: o servidor resolve cliente, endereço e pedido dentro da unidade
+      const usingSaved = orderType === "DELIVERY" && isLoggedIn && !!selectedSavedAddressId && selectedSavedAddressId !== "new";
 
-      let addressId: string | undefined;
-      if (orderType === "DELIVERY") {
-        if (selectedSavedAddressId && selectedSavedAddressId !== "new") {
-          addressId = selectedSavedAddressId;
-        } else {
-          const { data: addrData } = await axios.post(`/api/clientes/${customerId}/enderecos`, {
-            ...address,
-            label: "Entrega",
-          });
-          addressId = addrData.id;
-        }
-      }
-
-      const { data: order } = await axios.post("/api/pedidos", {
-        brandId,
-        customerId,
-        addressId,
+      const { data: order } = await axios.post("/api/checkout", {
+        customer: isLoggedIn
+          ? undefined
+          : { name: customer.name, phone: customer.phone.replace(/\D/g, ""), email: customer.email || undefined },
+        savedAddressId: usingSaved ? selectedSavedAddressId : undefined,
+        address: orderType === "DELIVERY" && !usingSaved
+          ? {
+              cep: address.cep,
+              street: address.street,
+              number: address.number,
+              complement: address.complement || undefined,
+              neighborhood: address.neighborhood,
+              city: address.city,
+              state: address.state,
+            }
+          : undefined,
         deliveryZoneId: orderType === "DELIVERY" ? address.deliveryZoneId : undefined,
         type: orderType,
         paymentMethod,
@@ -224,7 +204,9 @@ export default function CheckoutModal({ open, onClose, brandId }: CheckoutModalP
       clear();
     } catch (err) {
       console.error(err);
-      setError("Erro ao finalizar pedido. Tente novamente.");
+      // Mensagens do servidor (estoque, cupom, zona…) são pensadas para o cliente
+      const msg = axios.isAxiosError(err) && err.response?.status && err.response.status < 500 ? err.response.data?.error : null;
+      setError(msg || "Erro ao finalizar pedido. Tente novamente.");
     } finally {
       setLoading(false);
     }

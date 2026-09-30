@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
     });
 
     emitAdminEvent({
+      unitId: order.unitId ?? "",
       type: "order_confirmed",
       orderId: order.id,
       orderNumber: order.number,

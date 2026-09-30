@@ -1,21 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { resolveUnitBySlugParam, whatsappAuthOk } from "@/lib/api-auth";
 
-function authOk(req: NextRequest) {
-  const key = process.env.WHATSAPP_API_KEY;
-  if (!key) return true; // no key configured — open (dev mode)
-  return req.headers.get("authorization") === `Bearer ${key}`;
-}
-
-// n8n calls this to get the product list for the chatbot
+// n8n calls this to get the product list for the chatbot (?unit=slug, padrão matriz)
 export async function GET(req: NextRequest) {
-  if (!authOk(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const brand = await prisma.brand.findFirst({ where: { slug: "banguelas" } });
-  if (!brand) return NextResponse.json({ error: "Brand not found" }, { status: 404 });
+  if (!whatsappAuthOk(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const unit = await resolveUnitBySlugParam(req.nextUrl.searchParams.get("unit"));
+  if (unit instanceof NextResponse) return unit;
 
   const products = await prisma.product.findMany({
-    where: { brandId: brand.id, active: true },
+    where: { unitId: unit.id, active: true },
     include: {
       images: { where: { isMain: true }, take: 1 },
       stockItem: { select: { quantity: true } },

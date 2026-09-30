@@ -10,32 +10,34 @@ datasource db {
 // ─── MULTI-MARCA ─────────────────────────────────────────────────────────────
 
 model Brand {
-  id             String   @id @default(cuid())
-  name           String
-  slug           String   @unique
-  logoUrl        String?
-  primaryColor   String   @default("#F97316")
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  logoUrl      String?
+  primaryColor String   @default("#F97316")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
 
   bannerTitle    String?
   bannerSubtitle String?
   bannerBgColor  String?
   bannerBadges   String[]
 
-  products       Product[]
-  orders         Order[]
-  customers      Customer[]
-  coupons        Coupon[]
-  thematicMenus  ThematicMenu[]
-  loyaltyConfig  LoyaltyConfig?
-  bannerSlides   BannerSlide[]
-  schoolParents  SchoolParent[]
+  products      Product[]
+  orders        Order[]
+  customers     Customer[]
+  coupons       Coupon[]
+  thematicMenus ThematicMenu[]
+  loyaltyConfig LoyaltyConfig?
+  bannerSlides  BannerSlide[]
+  schoolParents SchoolParent[]
+  units         Unit[]
 }
 
 model BannerSlide {
   id              String   @id @default(cuid())
   brandId         String
+  unitId          String
   desktopImageUrl String
   mobileImageUrl  String
   linkUrl         String?
@@ -44,12 +46,47 @@ model BannerSlide {
   createdAt       DateTime @default(now())
 
   brand Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  unit  Unit? @relation(fields: [unitId], references: [id])
+
+  @@index([unitId])
+}
+
+// ─── UNIDADES (MATRIZ / FRANQUIAS) ───────────────────────────────────────────
+
+enum UnitType {
+  HQ
+  FRANCHISE
+}
+
+model Unit {
+  id        String   @id @default(cuid())
+  brandId   String
+  type      UnitType @default(FRANCHISE)
+  name      String
+  slug      String   @unique // subdomínio ou path: cidade.banguelas.com.br | banguelas.com.br/cidade
+  city      String?
+  state     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand         Brand          @relation(fields: [brandId], references: [id])
+  users         User[]
+  customers     Customer[]
+  orders        Order[]
+  products      Product[]
+  categories    Category[]
+  coupons       Coupon[]
+  deliveryZones DeliveryZone[]
+  thematicMenus ThematicMenu[]
+  bannerSlides  BannerSlide[]
 }
 
 // ─── USUÁRIOS ADMIN / STAFF ──────────────────────────────────────────────────
 
 model User {
   id            String    @id @default(cuid())
+  unitId        String
   name          String?
   email         String    @unique
   emailVerified DateTime?
@@ -62,6 +99,9 @@ model User {
 
   accounts Account[]
   sessions Session[]
+  unit     Unit?     @relation(fields: [unitId], references: [id])
+
+  @@index([unitId])
 }
 
 model Account {
@@ -112,11 +152,13 @@ enum UserRole {
 model Customer {
   id           String    @id @default(cuid())
   brandId      String
+  unitId       String
   name         String
   email        String?
-  phone        String    @unique
-  cpf          String?   @unique
+  phone        String
+  cpf          String?
   passwordHash String?
+  googleId     String?
   active       Boolean   @default(true)
   notes        String?
   createdAt    DateTime  @default(now())
@@ -129,12 +171,18 @@ model Customer {
   notifPromos   Boolean @default(false)
   notifReorder  Boolean @default(true)
 
-  brand      Brand             @relation(fields: [brandId], references: [id])
-  children   Child[]
-  addresses  CustomerAddress[]
-  orders     Order[]
+  brand       Brand             @relation(fields: [brandId], references: [id])
+  children    Child[]
+  addresses   CustomerAddress[]
+  orders      Order[]
   loyaltyCard LoyaltyCard?
-  followUps  FollowUp[]
+  followUps   FollowUp[]
+  unit        Unit?             @relation(fields: [unitId], references: [id])
+
+  @@unique([unitId, phone])
+  @@unique([unitId, cpf])
+  @@unique([unitId, googleId])
+  @@index([unitId])
 }
 
 model Child {
@@ -171,6 +219,7 @@ model CustomerAddress {
 
 model DeliveryZone {
   id            String   @id @default(cuid())
+  unitId        String
   name          String
   neighborhoods String[]
   cities        String[]
@@ -185,14 +234,18 @@ model DeliveryZone {
 
   addresses CustomerAddress[]
   orders    Order[]
+  unit      Unit?             @relation(fields: [unitId], references: [id])
+
+  @@index([unitId])
 }
 
 // ─── CARDÁPIO ────────────────────────────────────────────────────────────────
 
 model Category {
   id       String  @id @default(cuid())
+  unitId   String
   name     String
-  slug     String  @unique
+  slug     String
   imageUrl String?
   ageMin   Int?
   ageMax   Int?
@@ -200,17 +253,22 @@ model Category {
   active   Boolean @default(true)
 
   products Product[]
+  unit     Unit?     @relation(fields: [unitId], references: [id])
+
+  @@unique([unitId, slug])
+  @@index([unitId])
 }
 
 model Product {
   id            String   @id @default(cuid())
   brandId       String
+  unitId        String
   categoryId    String?
   name          String
   description   String?
   price         Float
   priceOriginal Float?
-  sku           String?  @unique
+  sku           String?
   ageMin        Int?
   ageMax        Int?
   weight        Float?
@@ -224,12 +282,16 @@ model Product {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  brand        Brand      @relation(fields: [brandId], references: [id])
-  category     Category?  @relation(fields: [categoryId], references: [id])
-  images       ProductImage[]
-  stockItem    StockItem?
-  orderItems   OrderItem[]
+  brand                Brand                 @relation(fields: [brandId], references: [id])
+  category             Category?             @relation(fields: [categoryId], references: [id])
+  images               ProductImage[]
+  stockItem            StockItem?
+  orderItems           OrderItem[]
   thematicMenuProducts ThematicMenuProduct[]
+  unit                 Unit?                 @relation(fields: [unitId], references: [id])
+
+  @@unique([unitId, sku])
+  @@index([unitId])
 }
 
 model ProductImage {
@@ -246,6 +308,7 @@ model ProductImage {
 model ThematicMenu {
   id          String    @id @default(cuid())
   brandId     String
+  unitId      String
   name        String
   description String?
   imageUrl    String?
@@ -258,12 +321,15 @@ model ThematicMenu {
 
   brand    Brand                 @relation(fields: [brandId], references: [id])
   products ThematicMenuProduct[]
+  unit     Unit?                 @relation(fields: [unitId], references: [id])
+
+  @@index([unitId])
 }
 
 model ThematicMenuProduct {
   menuId    String
   productId String
-  order     Int @default(0)
+  order     Int    @default(0)
 
   menu    ThematicMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
   product Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -277,6 +343,7 @@ model Order {
   id             String      @id @default(cuid())
   number         Int
   brandId        String
+  unitId         String
   customerId     String
   addressId      String?
   deliveryZoneId String?
@@ -300,17 +367,19 @@ model Order {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
-  brand        Brand            @relation(fields: [brandId], references: [id])
-  customer     Customer         @relation(fields: [customerId], references: [id])
-  address      CustomerAddress? @relation(fields: [addressId], references: [id])
-  deliveryZone DeliveryZone?    @relation(fields: [deliveryZoneId], references: [id])
-  coupon       Coupon?          @relation(fields: [couponId], references: [id])
+  brand        Brand               @relation(fields: [brandId], references: [id])
+  customer     Customer            @relation(fields: [customerId], references: [id])
+  address      CustomerAddress?    @relation(fields: [addressId], references: [id])
+  deliveryZone DeliveryZone?       @relation(fields: [deliveryZoneId], references: [id])
+  coupon       Coupon?             @relation(fields: [couponId], references: [id])
   items        OrderItem[]
   payment      Payment?
   fiscalDocs   FiscalDocument[]
   loyaltyTx    LoyaltyTransaction?
+  unit         Unit?               @relation(fields: [unitId], references: [id])
 
-  @@unique([brandId, number])
+  @@unique([unitId, number])
+  @@index([unitId])
 }
 
 model OrderItem {
@@ -346,18 +415,18 @@ enum OrderStatus {
 // ─── PAGAMENTOS ──────────────────────────────────────────────────────────────
 
 model Payment {
-  id            String        @id @default(cuid())
-  orderId       String        @unique
-  method        PaymentMethod
-  status        PaymentStatus @default(PENDING)
-  amount        Float
-  gatewayId     String?
-  gatewayData   Json?
-  paidAt        DateTime?
-  refundedAt    DateTime?
-  changeAmount  Float?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id           String        @id @default(cuid())
+  orderId      String        @unique
+  method       PaymentMethod
+  status       PaymentStatus @default(PENDING)
+  amount       Float
+  gatewayId    String?
+  gatewayData  Json?
+  paidAt       DateTime?
+  refundedAt   DateTime?
+  changeAmount Float?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
@@ -387,7 +456,8 @@ enum PaymentStatus {
 model Coupon {
   id             String     @id @default(cuid())
   brandId        String
-  code           String     @unique
+  unitId         String
+  code           String
   description    String?
   type           CouponType
   value          Float
@@ -405,6 +475,10 @@ model Coupon {
 
   brand  Brand   @relation(fields: [brandId], references: [id])
   orders Order[]
+  unit   Unit?   @relation(fields: [unitId], references: [id])
+
+  @@unique([unitId, code])
+  @@index([unitId])
 }
 
 enum CouponType {
@@ -456,27 +530,27 @@ enum LoyaltyTxType {
 }
 
 model LoyaltyConfig {
-  id                       String   @id @default(cuid())
-  brandId                  String   @unique
-  programEnabled           Boolean  @default(true)
+  id             String  @id @default(cuid())
+  brandId        String  @unique
+  programEnabled Boolean @default(true)
 
   // Regras do cartão de fidelidade
-  targetOrders             Int      @default(5)      // pedidos para completar o programa
-  minOrderValue            Float    @default(100)    // valor mínimo por pedido
-  completionPeriodDays     Int      @default(30)     // prazo para completar (dias)
+  targetOrders         Int   @default(5) // pedidos para completar o programa
+  minOrderValue        Float @default(100) // valor mínimo por pedido
+  completionPeriodDays Int   @default(30) // prazo para completar (dias)
 
   // Recompensa
-  rewardType               String   @default("FIXED") // FIXED ou PERCENTAGE
-  rewardValue              Float    @default(30)     // valor do desconto
-  rewardValidDays          Int      @default(30)     // validade do desconto após ganhar
+  rewardType      String @default("FIXED") // FIXED ou PERCENTAGE
+  rewardValue     Float  @default(30) // valor do desconto
+  rewardValidDays Int    @default(30) // validade do desconto após ganhar
 
   // Restrições
-  minIntervalHours         Int      @default(24)     // intervalo mínimo entre pedidos válidos
-  onlyDelivery             Boolean  @default(true)   // apenas pedidos de entrega contam
-  notCumulativeWithCoupons Boolean  @default(true)   // não acumula com cupons
+  minIntervalHours         Int     @default(24) // intervalo mínimo entre pedidos válidos
+  onlyDelivery             Boolean @default(true) // apenas pedidos de entrega contam
+  notCumulativeWithCoupons Boolean @default(true) // não acumula com cupons
 
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   brand Brand @relation(fields: [brandId], references: [id])
 }
@@ -553,7 +627,8 @@ enum FollowUpStatus {
 
 model WhatsAppSession {
   id         String    @id @default(cuid())
-  phone      String    @unique
+  unitId     String
+  phone      String
   state      String    @default("IDLE")
   cartData   Json?
   customerId String?
@@ -561,6 +636,8 @@ model WhatsAppSession {
   expiresAt  DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
+
+  @@unique([unitId, phone])
 }
 
 // ─── DOCUMENTOS FISCAIS ──────────────────────────────────────────────────────

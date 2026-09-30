@@ -17,6 +17,9 @@ const EventSource = require("eventsource");
 const { ThermalPrinter, PrinterTypes, CharacterSet } = require("node-thermal-printer");
 
 const ERP_URL = process.env.ERP_URL || "http://localhost:3000";
+// Chave da unidade (HMAC) — gerar no servidor com: npx tsx scripts/print-agent-key.ts <slug-da-unidade>
+const PRINT_AGENT_KEY = process.env.PRINT_AGENT_KEY || "";
+const AUTH_HEADERS = PRINT_AGENT_KEY ? { Authorization: `Bearer ${PRINT_AGENT_KEY}` } : {};
 const PRINTER_TYPE = process.env.PRINTER_TYPE || "epson"; // epson | star
 const PRINTER_INTERFACE = process.env.PRINTER_INTERFACE || "usb://0x04b8:0x0202"; // USB VID:PID — adjust to your printer
 // For network: "tcp://192.168.1.100:9100"
@@ -34,7 +37,7 @@ async function fetchOrder(orderId) {
   const res = await fetch(`${ERP_URL}/api/pedidos/${orderId}`, {
     headers: {
       "Content-Type": "application/json",
-      // Add admin session cookie here if route is protected
+      ...AUTH_HEADERS,
     },
   });
   if (!res.ok) throw new Error(`Failed to fetch order ${orderId}: ${res.status}`);
@@ -147,7 +150,7 @@ function connect() {
   const url = `${ERP_URL}/api/admin/events`;
   console.log(`[sse] Connecting to ${url}...`);
 
-  const es = new EventSource(url);
+  const es = new EventSource(url, { headers: AUTH_HEADERS });
 
   es.onopen = () => console.log("[sse] Connected.");
   es.onerror = (e) => {

@@ -2,11 +2,19 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import AdminSidebar from "@/components/admin/AdminSidebar";
+import { getCurrentUnit } from "@/lib/unit";
+
+const STAFF_ROLES = ["SUPER_ADMIN", "ADMIN", "STAFF"];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
 
-  if (!session?.user) {
+  const unit = await getCurrentUnit();
+  const user = session?.user;
+
+  // Painel só para staff, e só na própria unidade (SUPER_ADMIN, da matriz, acessa qualquer uma).
+  // Cliente logado ou usuário de outra franquia não passa daqui.
+  if (!user || !unit || !STAFF_ROLES.includes(user.role) || (user.role !== "SUPER_ADMIN" && user.unitId !== unit.id)) {
     redirect("/admin/login");
   }
 

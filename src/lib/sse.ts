@@ -13,6 +13,7 @@ if (!global.__sseEmitter) {
 export const sseEmitter = global.__sseEmitter;
 
 export interface AdminEvent {
+  unitId: string; // o stream só entrega eventos da unidade do painel conectado
   type:
     | "order_new"
     | "order_confirmed"

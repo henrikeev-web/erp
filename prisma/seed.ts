@@ -32,6 +32,13 @@ async function main() {
 
   console.log("✓ Brand criada:", brand.name);
 
+  // Unidade matriz — todo dado de negócio pertence a uma unidade
+  const unit = await prisma.unit.upsert({
+    where: { slug: "matriz" },
+    update: {},
+    create: { brandId: brand.id, type: "HQ", name: brand.name, slug: "matriz", city: "São José do Rio Preto", state: "SP" },
+  });
+
   // Admin user
   const passwordHash = await bcrypt.hash("admin123", 12);
   const admin = await prisma.user.upsert({
@@ -42,6 +49,7 @@ async function main() {
       email: "admin@banguelas.com.br",
       passwordHash,
       role: "ADMIN",
+      unitId: unit.id,
     },
   });
 
@@ -60,16 +68,16 @@ async function main() {
 
   for (const cat of categories) {
     await prisma.category.upsert({
-      where: { slug: cat.slug },
+      where: { unitId_slug: { unitId: unit.id, slug: cat.slug } },
       update: {},
-      create: cat,
+      create: { ...cat, unitId: unit.id },
     });
   }
 
   console.log("✓ Categorias criadas:", categories.length);
 
   // Produtos exemplo
-  const catMap = await prisma.category.findMany({ select: { id: true, slug: true } });
+  const catMap = await prisma.category.findMany({ where: { unitId: unit.id }, select: { id: true, slug: true } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const catBySlug = Object.fromEntries(catMap.map((c: any) => [c.slug, c.id]));
 
@@ -146,12 +154,12 @@ async function main() {
 
   for (const prod of products) {
     const existing = await prisma.product.findFirst({
-      where: { name: prod.name, brandId: brand.id },
+      where: { name: prod.name, unitId: unit.id },
     });
 
     if (!existing) {
       const created = await prisma.product.create({
-        data: { ...prod, brandId: brand.id },
+        data: { ...prod, brandId: brand.id, unitId: unit.id },
       });
       await prisma.stockItem.create({
         data: { productId: created.id, quantity: 50, minQuantity: 5 },
@@ -175,6 +183,7 @@ async function main() {
     update: {},
     create: {
       id: "zone-sp-centro",
+      unitId: unit.id,
       name: "SP - Centro / Vila Mariana",
       neighborhoods: ["Centro", "Vila Mariana", "Moema", "Ibirapuera", "Paraíso"],
       cities: ["São Paulo"],
@@ -190,10 +199,11 @@ async function main() {
 
   // Cupom exemplo
   await prisma.coupon.upsert({
-    where: { code: "BEMVINDO10" },
+    where: { unitId_code: { unitId: unit.id, code: "BEMVINDO10" } },
     update: {},
     create: {
       brandId: brand.id,
+      unitId: unit.id,
       code: "BEMVINDO10",
       description: "10% de desconto no primeiro pedido",
       type: "PERCENTAGE",
@@ -226,11 +236,12 @@ async function main() {
   const createdCustomers: Record<string, string> = {};
 
   for (const c of customersData) {
-    const existing = await prisma.customer.findUnique({ where: { phone: c.phone } });
+    const existing = await prisma.customer.findFirst({ where: { unitId: unit.id, phone: c.phone } });
     if (!existing) {
       const customer = await prisma.customer.create({
         data: {
           brandId: brand.id,
+          unitId: unit.id,
           name: c.name,
           phone: c.phone,
           email: c.email,
@@ -342,7 +353,7 @@ async function main() {
       : daysAgo(fo.daysAgoPlaced);
 
     // Verificar se o pedido já existe (evitar duplicatas em re-seed)
-    const existingOrder = await prisma.order.findUnique({ where: { brandId_number: { brandId: brand.id, number: orderNumber } } });
+    const existingOrder = await prisma.order.findUnique({ where: { unitId_number: { unitId: unit.id, number: orderNumber } } });
     if (existingOrder) { orderNumber++; continue; }
 
     const statusDates: Record<string, object> = {};
@@ -366,6 +377,7 @@ async function main() {
       data: {
         number: orderNumber,
         brandId: brand.id,
+        unitId: unit.id,
         customerId,
         addressId,
         deliveryZoneId: zone.id,

@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchCep } from "@/lib/cep";
 import { prisma } from "@/lib/prisma";
+import { resolveUnit } from "@/lib/api-auth";
 import { geocodeCep } from "@/lib/geocoding";
 import { haversineDistance, WAREHOUSE_LAT, WAREHOUSE_LNG } from "@/lib/haversine";
 
 export async function GET(req: NextRequest) {
+  const unit = await resolveUnit();
+  if (unit instanceof NextResponse) return unit;
+
   const { searchParams } = new URL(req.url);
   const cep = searchParams.get("cep");
 
@@ -14,7 +18,7 @@ export async function GET(req: NextRequest) {
   if (!address) return NextResponse.json({ error: "CEP não encontrado" }, { status: 404 });
 
   const zones = await prisma.deliveryZone.findMany({
-    where: { active: true },
+    where: { unitId: unit.id, active: true },
     orderBy: { maxRadiusKm: "asc" },
   });
 

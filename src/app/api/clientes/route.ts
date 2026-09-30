@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { requireStaff } from "@/lib/api-auth";
 
 const createCustomerSchema = z.object({
-  brandId: z.string(),
   name: z.string().min(2),
   phone: z.string().min(10),
   email: z.string().email().optional().or(z.literal("")),
@@ -16,9 +16,12 @@ const createCustomerSchema = z.object({
 });
 
 export async function GET(req: NextRequest) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
+  const { unit } = auth;
+
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q");
-  const brandId = searchParams.get("brandId");
   const inactive = searchParams.get("inativo");
   const page = parseInt(searchParams.get("page") ?? "1");
   const limit = parseInt(searchParams.get("limit") ?? "20");
@@ -28,7 +31,7 @@ export async function GET(req: NextRequest) {
   const inactiveDays = diasSemPedido ? parseInt(diasSemPedido) : inactive === "true" ? 30 : null;
 
   const where: Record<string, unknown> = {
-    ...(brandId && { brandId }),
+    unitId: unit.id,
     ...(semPedido === "true" && { lastOrderAt: null }),
     ...(inactiveDays != null && !semPedido && {
       OR: [
@@ -64,18 +67,23 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
+  const { unit } = auth;
+
   try {
     const body = await req.json();
     const data = createCustomerSchema.parse(body);
 
-    const existing = await prisma.customer.findUnique({ where: { phone: data.phone } });
+    const existing = await prisma.customer.findFirst({ where: { unitId: unit.id, phone: data.phone } });
     if (existing) {
       return NextResponse.json({ error: "Telefone já cadastrado", customerId: existing.id }, { status: 409 });
     }
 
     const customer = await prisma.customer.create({
       data: {
-        brandId: data.brandId,
+        brandId: unit.brandId,
+        unitId: unit.id,
         name: data.name,
         phone: data.phone,
         email: data.email || null,

@@ -58,6 +58,35 @@ const prisma = new (PrismaClient as any)({ adapter });
 
 ---
 
+## Multi-unidade (matriz + franquias)
+
+Uma instalação e um banco atendem todas as unidades. `Unit` (`HQ` | `FRANCHISE`, com `slug`) é o tenant.
+
+- **Toda tabela de negócio tem `unitId` obrigatório**: User, Customer, Category, Product, DeliveryZone, Coupon, Order, ThematicMenu, BannerSlide, WhatsAppSession. O catálogo é **por unidade** (a franquia recebe uma cópia do catálogo da matriz); estoque continua 1:1 com o produto.
+- **Unicidades são compostas por unidade**: `[unitId, phone]`, `[unitId, cpf]`, `[unitId, sku]`, `[unitId, slug]` (categoria), `[unitId, code]` (cupom), `[unitId, number]` (pedido). Nunca usar `findUnique({ where: { phone } })`.
+- **A unidade vem do host** (`src/proxy.ts` → header `x-unit-slug`, sempre sobrescrito): `cidade.banguelas.com.br` → `cidade`; `cardapio.*`, `www.*` e `localhost` → `matriz`. Em dev use `cidade.localhost:3000`. Ler com `getCurrentUnit()` (`src/lib/unit.ts`).
+- **TODA rota nova deve escopar por unidade.** O client Prisma é `any`, então o TypeScript **não avisa** de query sem `unitId`. Helpers em `src/lib/api-auth.ts`:
+  - `requireStaff(roles?)` — painel: exige SUPER_ADMIN/ADMIN/STAFF **da unidade do host** (SUPER_ADMIN acessa qualquer uma). Retorna `{ unit }` ou `NextResponse` (401/403).
+  - `resolveUnit()` — rotas públicas (cardápio, checkout).
+  - `requireStaffOrAgent()` — só para leitura do print-agent (Bearer por unidade).
+  - `whatsappAuthOk()` / `resolveUnitBySlugParam()` — bot n8n (`?unit=slug`, padrão `matriz`). Sem `WHATSAPP_API_KEY` só é aceito fora de produção.
+  - Nunca repassar o body cru ao Prisma: remover `id`, `unitId`, `brandId`.
+  - Update/delete: `where: { id, unitId: unit.id }`.
+- **Marca e regras de fidelidade são da rede**: qualquer unidade lê, só a matriz (`unit.type === "HQ"`) edita. **Módulo Escola/NFS-e é exclusivo da matriz.**
+- **Pedido**: criar SEMPRE por `createOrder()` (`src/lib/order-service.ts`). Ele valida posse (cliente/endereço/zona/produto/cupom da unidade), preço do servidor, cupom (regras + uso atômico), estoque (baixa atômica, sem negativo), lock consultivo por unidade para o número sequencial, fidelidade e evento SSE. Tudo numa transação.
+- **Checkout público**: `POST /api/checkout` (cliente + endereço + pedido numa chamada). `POST /api/pedidos` é só do painel.
+- **SSE** (`/api/admin/events`) entrega só eventos da unidade do painel (`AdminEvent.unitId`).
+- **Sessão de cliente** (`getCustomerSession`) só vale na unidade do JWT (`session.user.unitId`).
+- **print-agent**: `PRINT_AGENT_KEY` = HMAC(`PRINT_AGENT_SECRET`, slug). Gerar com `npx tsx scripts/print-agent-key.ts <slug>`.
+- **Scripts**: `prisma/backfill-unit.ts` associa dados existentes à matriz (rodar entre os dois passos de `db push` ao migrar um banco antigo). `prisma/reset-catalog.ts [slug]` só apaga a unidade informada (padrão matriz).
+
+- **Login Google (só clientes)**: o callback do OAuth só existe no `AUTH_HOST` (`NEXTAUTH_URL`). Fluxo: `/api/minha-conta/google/start` (na unidade, redireciona ao `AUTH_HOST` levando o slug; no `AUTH_HOST` grava o cookie `bg_login` {unit, returnTo}) → `/minha-conta/login/google` (`signIn("google")`) → callback → `jwt` acha o cliente por `googleId` ou e-mail verificado **na unidade do cookie** → `/api/minha-conta/google/finish` devolve à origem da unidade (destino montado no servidor; `returnTo` só aceita caminho interno). Cliente novo fica com sessão `CUSTOMER_PENDING` até `/minha-conta/completar-cadastro` (telefone): o `update()` só promove se o cliente existir na mesma unidade com o **mesmo googleId** do token. Telefone de conta com senha/Google nunca é "assumido". Em produção `COOKIE_DOMAIN=.banguelas.com.br` compartilha a sessão entre subdomínios; sem ela, cada host tem sua sessão.
+- **URIs no Google Cloud**: redirect `https://<AUTH_HOST>/api/auth/callback/google` (+ `http://localhost:3000/api/auth/callback/google` em dev).
+
+Variáveis: `BASE_DOMAIN`, `AUTH_HOST`, `COOKIE_DOMAIN` (prod, `.banguelas.com.br`), `PRINT_AGENT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+
+---
+
 ## Infraestrutura Docker
 
 O projeto roda inteiramente em Docker. Três containers definidos em `docker-compose.yml`:
@@ -613,6 +642,6 @@ Os produtos e categorias reais da Banguelas foram importados via `prisma/reset-c
 - [x] NFS-e mensal para pais de escola — integração direta GissOnline ABRASF 2.04 (SJRP)
 - [ ] NFCe por pedido via SEFAZ (estrutura `FiscalDocument` já existe no schema)
 - [ ] Fluxo n8n para WhatsApp bot (Evolution API + Gemini + endpoints `/api/whatsapp/*`)
-- [ ] Multi-unidade / franqueados (modelo `Brand` já suporta)
+- [ ] Multi-unidade / franqueados — fase 0 feita (Unit + unitId + escopo das rotas); login Google feito; falta dashboard da matriz, cadastro de franqueado/revendedor, pedidos de reposição, sync de catálogo
 - [ ] Segunda marca "Minuto Menu" (mesma stack, nova Brand no banco)
 - [ ] Deploy em VPS (PM2 + Nginx + Let's Encrypt) — volume persistente para `public/uploads/` + `print-agent` rodando como serviço separado

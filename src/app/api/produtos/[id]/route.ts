@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireStaff } from "@/lib/api-auth";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
-  const product = await prisma.product.findUnique({
-    where: { id },
+  const product = await prisma.product.findFirst({
+    where: { id, unitId: auth.unit.id },
     include: { images: { orderBy: { order: "asc" } }, category: true, stockItem: true },
   });
   if (!product) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
@@ -12,12 +15,21 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   try {
-    const body = await req.json();
+    // Campos de escopo/controle nunca vêm do cliente
+    const { id: _id, unitId: _u, brandId: _b, createdAt: _c, updatedAt: _up, ...data } = await req.json();
+
+    if (data.categoryId) {
+      const cat = await prisma.category.findFirst({ where: { id: data.categoryId, unitId: auth.unit.id }, select: { id: true } });
+      if (!cat) return NextResponse.json({ error: "Categoria inválida" }, { status: 400 });
+    }
+
     const product = await prisma.product.update({
-      where: { id },
-      data: body,
+      where: { id, unitId: auth.unit.id },
+      data,
       include: { images: true, category: true, stockItem: true },
     });
     return NextResponse.json(product);
@@ -27,7 +39,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
-  await prisma.product.update({ where: { id }, data: { active: false } });
-  return NextResponse.json({ ok: true });
+  try {
+    await prisma.product.update({ where: { id, unitId: auth.unit.id }, data: { active: false } });
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+  }
 }

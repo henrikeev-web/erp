@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireStaff } from "@/lib/api-auth";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
-  const customer = await prisma.customer.findUnique({
-    where: { id },
+  const customer = await prisma.customer.findFirst({
+    where: { id, unitId: auth.unit.id },
     include: {
       children: true,
       addresses: { include: { deliveryZone: true } },
@@ -22,12 +25,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   try {
     const body = await req.json();
     const { name, email, cpf, notes, active } = body;
     const customer = await prisma.customer.update({
-      where: { id },
+      where: { id, unitId: auth.unit.id },
       data: { name, email, cpf, notes, active },
       include: { children: true, loyaltyCard: true },
     });

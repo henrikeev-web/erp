@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { emitAdminEvent } from "@/lib/sse";
+import { requireStaff, requireStaffOrAgent } from "@/lib/api-auth";
+
+const STATUSES = ["PENDING", "CONFIRMED", "IN_PRODUCTION", "READY", "DISPATCHED", "DELIVERED", "CANCELLED"];
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaffOrAgent();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
-  const order = await prisma.order.findUnique({
-    where: { id },
+  const order = await prisma.order.findFirst({
+    where: { id, unitId: auth.unit.id },
     include: {
       customer: true,
       address: true,
@@ -20,9 +25,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   try {
     const { status, cancelReason } = await req.json();
+    if (!STATUSES.includes(status)) return NextResponse.json({ error: "Status inválido" }, { status: 400 });
 
     const timestampMap: Record<string, Record<string, Date | null>> = {
       CONFIRMED: { confirmedAt: new Date() },
@@ -33,7 +41,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     };
 
     const order = await prisma.order.update({
-      where: { id },
+      where: { id, unitId: auth.unit.id },
       data: {
         status,
         ...timestampMap[status],
@@ -55,6 +63,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // Emit SSE for auto-print on CONFIRMED
     if (status === "CONFIRMED") {
       emitAdminEvent({
+        unitId: auth.unit.id,
         type: "order_confirmed",
         orderId: id,
         orderNumber: order.number,
@@ -63,6 +72,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       });
     } else {
       emitAdminEvent({
+        unitId: auth.unit.id,
         type: "order_status",
         orderId: id,
         orderNumber: order.number,

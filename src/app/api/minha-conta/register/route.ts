@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { resolveUnit } from "@/lib/api-auth";
 
 const schema = z.object({
   name: z.string().min(2),
@@ -11,6 +12,9 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
+  const unit = await resolveUnit();
+  if (unit instanceof NextResponse) return unit;
+
   try {
     const body = await req.json();
     const parsed = schema.safeParse(body);
@@ -24,7 +28,7 @@ export async function POST(req: Request) {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const existing = await prisma.customer.findFirst({
-      where: { OR: [{ phone: phoneClean }, ...(emailValue ? [{ email: emailValue }] : [])] },
+      where: { unitId: unit.id, OR: [{ phone: phoneClean }, ...(emailValue ? [{ email: emailValue }] : [])] },
     });
 
     if (existing) {
@@ -44,13 +48,11 @@ export async function POST(req: Request) {
     }
 
     // New customer
-    const brand = await (prisma.brand as any).findFirst({ where: { active: true } });
-    if (!brand) return NextResponse.json({ error: "Marca não encontrada" }, { status: 500 });
-
     await (prisma as any).$transaction(async (tx: any) => {
       const customer = await tx.customer.create({
         data: {
-          brandId: brand.id,
+          brandId: unit.brandId,
+          unitId: unit.id,
           name,
           phone: phoneClean,
           email: emailValue,

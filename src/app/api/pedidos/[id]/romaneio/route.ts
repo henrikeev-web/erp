@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, paymentMethodLabel } from "@/lib/utils";
+import { requireStaff } from "@/lib/api-auth";
+
+// Nome, endereço e observações vêm do cliente: sempre escapar antes de montar HTML
+const esc = (v: unknown) =>
+  String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
 
-  const order = await prisma.order.findUnique({
-    where: { id },
+  const order = await prisma.order.findFirst({
+    where: { id, unitId: auth.unit.id },
     include: {
       customer: true,
       address: { include: { deliveryZone: true } },
@@ -47,7 +54,7 @@ function generateRomaneioHtml(order: {
       (item) => `
       <tr>
         <td>${item.quantity}x</td>
-        <td>${item.name}${item.notes ? `<br><small style="color:#666">${item.notes}</small>` : ""}</td>
+        <td>${esc(item.name)}${item.notes ? `<br><small style="color:#666">${esc(item.notes)}</small>` : ""}</td>
         <td style="text-align:right">${formatCurrency(item.price)}</td>
         <td style="text-align:right"><strong>${formatCurrency(item.total)}</strong></td>
       </tr>`
@@ -55,10 +62,10 @@ function generateRomaneioHtml(order: {
     .join("");
 
   const address = order.address
-    ? `${order.address.street}, ${order.address.number}${order.address.complement ? ` — ${order.address.complement}` : ""}
-${order.address.neighborhood}, ${order.address.city} — ${order.address.state}
-CEP ${order.address.cep}
-${order.address.deliveryZone ? `[${order.address.deliveryZone.name}]` : ""}`
+    ? `${esc(order.address.street)}, ${esc(order.address.number)}${order.address.complement ? ` — ${esc(order.address.complement)}` : ""}
+${esc(order.address.neighborhood)}, ${esc(order.address.city)} — ${esc(order.address.state)}
+CEP ${esc(order.address.cep)}
+${order.address.deliveryZone ? `[${esc(order.address.deliveryZone.name)}]` : ""}`
     : "RETIRADA NA LOJA";
 
   const paymentInfo = order.payment
@@ -108,9 +115,9 @@ ${order.address.deliveryZone ? `[${order.address.deliveryZone.name}]` : ""}`
 
 <div class="section">
   <label>Cliente</label>
-  <p><strong>${order.customer.name}</strong></p>
-  <p>📱 ${order.customer.phone}</p>
-  ${order.customer.email ? `<p>✉️ ${order.customer.email}</p>` : ""}
+  <p><strong>${esc(order.customer.name)}</strong></p>
+  <p>📱 ${esc(order.customer.phone)}</p>
+  ${order.customer.email ? `<p>✉️ ${esc(order.customer.email)}</p>` : ""}
 </div>
 
 <div class="section">
@@ -144,7 +151,7 @@ ${order.address.deliveryZone ? `[${order.address.deliveryZone.name}]` : ""}`
   ${order.payment?.status === "PAID" ? ' <span style="color:green">✓ PAGO</span>' : ""}
 </div>
 
-${order.notes ? `<div class="section"><label>Observações</label><p>${order.notes}</p></div>` : ""}
+${order.notes ? `<div class="section"><label>Observações</label><p>${esc(order.notes)}</p></div>` : ""}
 
 <div class="footer">
   Banguelas Papinhas · www.banguelas.com.br<br>

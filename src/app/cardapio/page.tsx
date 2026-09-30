@@ -1,19 +1,22 @@
 import { prisma } from "@/lib/prisma";
+import { getCurrentUnit } from "@/lib/unit";
 import MenuClient from "@/components/storefront/MenuClient";
 
 export const dynamic = "force-dynamic";
 
 async function getMenuData() {
-  const brand = await prisma.brand.findUnique({ where: { slug: "banguelas" } });
+  const unit = await getCurrentUnit();
+  if (!unit) return null;
+  const brand = await prisma.brand.findUnique({ where: { id: unit.brandId } });
   if (!brand) return null;
 
   const [categories, products, thematicMenus, bannerSlides] = await Promise.all([
     prisma.category.findMany({
-      where: { active: true },
+      where: { unitId: unit.id, active: true },
       orderBy: [{ order: "asc" }, { name: "asc" }],
     }),
     prisma.product.findMany({
-      where: { brandId: brand.id, active: true },
+      where: { unitId: unit.id, active: true },
       include: {
         images: { orderBy: { order: "asc" } },
         category: true,
@@ -23,7 +26,7 @@ async function getMenuData() {
     }),
     prisma.thematicMenu.findMany({
       where: {
-        brandId: brand.id,
+        unitId: unit.id,
         active: true,
         OR: [
           { validTo: null },
@@ -42,7 +45,7 @@ async function getMenuData() {
       },
     }),
     (prisma.bannerSlide as any).findMany({
-      where: { brandId: brand.id, active: true },
+      where: { unitId: unit.id, active: true },
       orderBy: { order: "asc" },
     }),
   ]);

@@ -3,8 +3,13 @@ export const runtime = "nodejs";
 
 import { NextRequest } from "next/server";
 import { sseEmitter } from "@/lib/sse";
+import { requireStaffOrAgent } from "@/lib/api-auth";
 
 export async function GET(req: NextRequest) {
+  const auth = await requireStaffOrAgent();
+  if (auth instanceof Response) return auth;
+  const unitId = auth.unit.id;
+
   const encoder = new TextEncoder();
   let listener: ((msg: string) => void) | null = null;
 
@@ -12,6 +17,8 @@ export async function GET(req: NextRequest) {
     start(controller) {
       listener = (msg: string) => {
         try {
+          // Só eventos da unidade deste painel/agente
+          if (JSON.parse(msg).unitId !== unitId) return;
           controller.enqueue(encoder.encode(`data: ${msg}\n\n`));
         } catch {
           // controller already closed

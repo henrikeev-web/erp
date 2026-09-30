@@ -1,10 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireStaff, resolveUnit } from "@/lib/api-auth";
 
+// Público (cardápio); includeInactive é só para o painel
 export async function GET(req: NextRequest) {
   const includeInactive = req.nextUrl.searchParams.get("includeInactive") === "true";
+
+  let unitId: string;
+  if (includeInactive) {
+    const auth = await requireStaff();
+    if (auth instanceof NextResponse) return auth;
+    unitId = auth.unit.id;
+  } else {
+    const unit = await resolveUnit();
+    if (unit instanceof NextResponse) return unit;
+    unitId = unit.id;
+  }
+
   const categories = await prisma.category.findMany({
-    where: includeInactive ? {} : { active: true },
+    where: includeInactive ? { unitId } : { unitId, active: true },
     orderBy: [{ order: "asc" }, { name: "asc" }],
     include: { _count: { select: { products: true } } },
   });
@@ -12,10 +26,18 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
+
   const body = await req.json();
   const { name, slug, imageUrl, ageMin, ageMax, order } = body;
-  const category = await prisma.category.create({
-    data: { name, slug, imageUrl, ageMin, ageMax, order: order ?? 0 },
-  });
-  return NextResponse.json(category, { status: 201 });
+  try {
+    const category = await prisma.category.create({
+      data: { unitId: auth.unit.id, name, slug, imageUrl, ageMin, ageMax, order: order ?? 0 },
+    });
+    return NextResponse.json(category, { status: 201 });
+  } catch (err: any) {
+    if (err?.code === "P2002") return NextResponse.json({ error: "Slug já existe" }, { status: 409 });
+    throw err;
+  }
 }

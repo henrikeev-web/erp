@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireStaff } from "@/lib/api-auth";
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const brandId = searchParams.get("brandId");
+export async function GET(_req: NextRequest) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
+  const unitId = auth.unit.id;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  const baseWhere = brandId ? { brandId } : {};
+  const baseWhere = { unitId };
 
   const [
     totalOrders,
@@ -43,7 +45,7 @@ export async function GET(req: NextRequest) {
 
     prisma.customer.count({
       where: {
-        ...(brandId && { brandId }),
+        unitId,
         lastOrderAt: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) },
       },
     }),

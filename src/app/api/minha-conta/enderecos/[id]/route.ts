@@ -30,6 +30,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
 
+  if (parsed.data.deliveryZoneId) {
+    const zone = await (prisma.deliveryZone as any).findFirst({ where: { id: parsed.data.deliveryZoneId, unitId: customer!.unitId }, select: { id: true } });
+    if (!zone) return NextResponse.json({ error: "Zona inválida" }, { status: 400 });
+  }
+
   if (parsed.data.isDefault) {
     await (prisma.customerAddress as any).updateMany({
       where: { customerId: customer!.id },

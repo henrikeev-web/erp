@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireStaff } from "@/lib/api-auth";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
-  const category = await prisma.category.findUnique({
-    where: { id },
+  const category = await prisma.category.findFirst({
+    where: { id, unitId: auth.unit.id },
     include: { _count: { select: { products: true } } },
   });
   if (!category) return NextResponse.json({ error: "Não encontrada" }, { status: 404 });
@@ -12,12 +15,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   try {
     const body = await req.json();
     const { name, slug, imageUrl, ageMin, ageMax, order, active } = body;
     const category = await prisma.category.update({
-      where: { id },
+      where: { id, unitId: auth.unit.id },
       data: {
         ...(name !== undefined && { name }),
         ...(slug !== undefined && { slug }),
@@ -35,9 +40,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   try {
-    await prisma.category.update({ where: { id }, data: { active: false } });
+    await prisma.category.update({ where: { id, unitId: auth.unit.id }, data: { active: false } });
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Erro ao remover" }, { status: 500 });

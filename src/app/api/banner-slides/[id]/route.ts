@@ -1,28 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireStaff } from "@/lib/api-auth";
 import { unlink } from "fs/promises";
 import { join } from "path";
 
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  return session?.user.role === "ADMIN";
-}
-
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!await requireAdmin()) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
-  const body = await req.json();
-  const slide = await (prisma.bannerSlide as any).update({ where: { id }, data: body });
-  return NextResponse.json(slide);
+  const { id: _id, unitId: _u, brandId: _b, ...data } = await req.json();
+  try {
+    const slide = await (prisma.bannerSlide as any).update({ where: { id, unitId: auth.unit.id }, data });
+    return NextResponse.json(slide);
+  } catch {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!await requireAdmin()) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireStaff();
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
 
-  const slide = await (prisma.bannerSlide as any).findUnique({ where: { id } });
+  const slide = await (prisma.bannerSlide as any).findFirst({ where: { id, unitId: auth.unit.id } });
   if (!slide) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   await (prisma.bannerSlide as any).delete({ where: { id } });
