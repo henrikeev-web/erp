@@ -25,6 +25,7 @@ const createOrderSchema = z.object({
     note: z.string().max(200).optional(),
   }).optional(),
   markPaid: z.boolean().optional(),
+  courierId: z.string().optional(), // obrigatório p/ entrega: o pedido manual já entra em produção
   items: z.array(z.object({
     productId: z.string(),
     quantity: z.number().int().min(1),
@@ -59,6 +60,7 @@ export async function GET(req: NextRequest) {
     prisma.order.findMany({
       where,
       include: {
+        courier: { select: { id: true, name: true } },
         customer: { select: { id: true, name: true, phone: true, email: true } },
         address: true,
         deliveryZone: { select: { name: true, fee: true } },

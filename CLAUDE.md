@@ -105,6 +105,18 @@ Variáveis: `BASE_DOMAIN`, `AUTH_HOST`, `COOKIE_DOMAIN` (prod, `.banguelas.com.b
 
 ---
 
+## Entregadores
+
+Cadastro em `/admin/entregadores` (abas Relatório e Cadastro) — **só ADMIN**; o entregador **não acessa o sistema**. STAFF apenas escolhe o entregador no pedido (`GET /api/entregadores` sem PIX/CPF).
+
+- **Pagamento**: por entrega, valor por **região** em `DeliveryZone.courierFee` (só ADMIN define; o custo já está dentro da taxa cobrada do cliente). Ao escolher o entregador o valor é **copiado para `Order.courierFee`** (snapshot: reajustar a zona depois não muda entregas passadas; trocar de entregador mantém o valor original).
+- **Regra do servidor** (`PATCH /api/pedidos/[id]`, `createOrder`): pedido de **ENTREGA** não vai para `IN_PRODUCTION`/`READY`/`DISPATCHED`/`DELIVERED` sem entregador → 409 `code: "COURIER_REQUIRED"`. Retirada não usa (400 se informar). Pedido manual de entrega exige `courierId`. Não troca entregador de pedido entregue/cancelado. UI: `useOrderStatus` (`CourierPicker.tsx`) abre o seletor sozinho ao receber o `COURIER_REQUIRED` — usado na lista de pedidos, kanban de produção e página do pedido. Toda nova tela que mude status deve usá-lo.
+- **Relatório**: entregas **ENTREGUES** por dia da entrega em **horário de Brasília** (`brDate`/`brRange` em `src/lib/courier.ts`; a coluna é `timestamp` sem fuso, guarda UTC). Sem dados do cliente (só bairro) — o relatório imprimível (`/api/entregadores/[id]/relatorio`) é entregue ao entregador. Mostra taxa cobrada × custo.
+- **Financeiro diário**: `syncCourierPayables` fecha os dias **já encerrados**: uma conta a pagar por (entregador, dia) — `source COURIER`, `sourceKey courier:<id>:<dia>`, centro de custo "Entregadores", vencimento no dia. Dia corrente entra na virada. Idempotente, sob demanda (financeiro/relatório, no máx. a cada 30 s/unidade), **sem cron**, janela de 90 dias. Conta ABERTA é recalculada/removida se as entregas mudarem; **PAGA ou CANCELADA nunca é tocada**; valor/vencimento não são editáveis (vêm da origem); não exclui (cancela).
+- **SIGILO**: `courierFee`/`courierId`/`createdBy`/`discountNote` são internos. Zonas públicas e `/api/cep` usam `omit: { courierFee: true }`; `/api/zonas-entrega?todas=true` (painel) só devolve o custo a ADMIN; histórico do cliente e resposta do checkout removem os campos do pedido. Ao criar rota pública que devolva zona ou pedido, aplicar o `omit`.
+
+---
+
 ## Financeiro (contas a pagar / a receber)
 
 Tela `/admin/financeiro` (abas: Resumo, A pagar, A receber, Recorrentes, Fornecedores, Centros de custo). **Só ADMIN/SUPER_ADMIN** (`requireStaff(["SUPER_ADMIN","ADMIN"])` nas APIs e guarda no servidor na página); STAFF não vê. Tudo por unidade.

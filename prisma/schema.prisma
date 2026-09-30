@@ -84,6 +84,7 @@ model Unit {
   costCenters      CostCenter[]
   financialEntries FinancialEntry[]
   recurringEntries RecurringEntry[]
+  couriers         Courier[]
 }
 
 // ─── USUÁRIOS ADMIN / STAFF ──────────────────────────────────────────────────
@@ -244,6 +245,7 @@ model DeliveryZone {
   cities        String[]
   cepRanges     Json?
   maxRadiusKm   Float?
+  courierFee    Float    @default(0) // quanto o entregador recebe por entrega nesta região (INTERNO — nunca público)
   fee           Float
   freeAbove     Float?
   minOrder      Float    @default(0)
@@ -368,36 +370,39 @@ model ThematicMenuProduct {
 // ─── PEDIDOS ─────────────────────────────────────────────────────────────────
 
 model Order {
-  id             String         @id @default(cuid())
-  number         Int
-  brandId        String
-  unitId         String
-  customerId     String
-  addressId      String?
-  deliveryZoneId String?
-  type           OrderType      @default(DELIVERY)
-  status         OrderStatus    @default(PENDING)
-  notes          String?
-  subtotal       Float
-  deliveryFee    Float          @default(0)
-  discount       Float          @default(0)
-  discountNote   String?
-  priceTier      OrderPriceTier @default(RETAIL)
-  invoiceDays    Int?
-  createdBy      String?
-  total          Float
-  couponId       String?
-  couponCode     String?
-  paymentLinkUrl String?
-  scheduledTo    DateTime?
-  confirmedAt    DateTime?
-  readyAt        DateTime?
-  dispatchedAt   DateTime?
-  deliveredAt    DateTime?
-  cancelledAt    DateTime?
-  cancelReason   String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                String         @id @default(cuid())
+  number            Int
+  brandId           String
+  unitId            String
+  customerId        String
+  addressId         String?
+  deliveryZoneId    String?
+  type              OrderType      @default(DELIVERY)
+  status            OrderStatus    @default(PENDING)
+  notes             String?
+  subtotal          Float
+  deliveryFee       Float          @default(0)
+  discount          Float          @default(0)
+  discountNote      String?
+  priceTier         OrderPriceTier @default(RETAIL)
+  invoiceDays       Int?
+  createdBy         String?
+  courierId         String?
+  courierFee        Float? // custo do entregador gravado ao escolher o entregador (INTERNO)
+  courierAssignedAt DateTime?
+  total             Float
+  couponId          String?
+  couponCode        String?
+  paymentLinkUrl    String?
+  scheduledTo       DateTime?
+  confirmedAt       DateTime?
+  readyAt           DateTime?
+  dispatchedAt      DateTime?
+  deliveredAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   brand        Brand               @relation(fields: [brandId], references: [id])
   customer     Customer            @relation(fields: [customerId], references: [id])
@@ -409,8 +414,10 @@ model Order {
   fiscalDocs   FiscalDocument[]
   loyaltyTx    LoyaltyTransaction?
   unit         Unit?               @relation(fields: [unitId], references: [id])
+  courier      Courier?            @relation(fields: [courierId], references: [id])
 
   @@unique([unitId, number])
+  @@index([unitId, courierId, deliveredAt])
   @@index([unitId])
 }
 
@@ -847,6 +854,7 @@ model FinancialEntry {
   costCenterId String?
   recurringId  String?
   orderId      String?
+  courierId    String?
 
   installmentNumber Int?
   installmentTotal  Int?
@@ -862,6 +870,7 @@ model FinancialEntry {
   customer   Customer?       @relation(fields: [customerId], references: [id])
   costCenter CostCenter?     @relation(fields: [costCenterId], references: [id])
   recurring  RecurringEntry? @relation(fields: [recurringId], references: [id], onDelete: SetNull)
+  courier    Courier?        @relation(fields: [courierId], references: [id])
 
   @@unique([unitId, sourceKey])
   @@unique([recurringId, dueDate])
@@ -893,5 +902,27 @@ model RecurringEntry {
   costCenter CostCenter?      @relation(fields: [costCenterId], references: [id])
   entries    FinancialEntry[]
 
+  @@index([unitId, active])
+}
+
+// ─── ENTREGADORES (sem acesso ao sistema; pagos por entrega) ─────────────────
+
+model Courier {
+  id        String   @id @default(cuid())
+  unitId    String
+  name      String
+  phone     String?
+  pixKey    String?
+  document  String? // CPF, só dígitos
+  notes     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  unit    Unit             @relation(fields: [unitId], references: [id])
+  orders  Order[]
+  entries FinancialEntry[]
+
+  @@unique([unitId, phone])
   @@index([unitId, active])
 }

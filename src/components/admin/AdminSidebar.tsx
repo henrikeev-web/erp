@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ShoppingBag, Users, Package, BarChart3,
   Settings, Tag, MapPin, LogOut, Menu, X, ChefHat,
-  FileText, Star, Bell, Layers, School, Wallet,
+  FileText, Star, Bell, Layers, School, Wallet, Bike,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
@@ -27,6 +27,7 @@ const NAV = [
   { href: "/admin/escola", icon: School, label: "Escola / NFS-e" },
   { href: "/admin/fiscal", icon: FileText, label: "Fiscal" },
   { href: "/admin/zonas", icon: MapPin, label: "Zonas de entrega" },
+  { href: "/admin/entregadores", icon: Bike, label: "Entregadores", adminOnly: true },
   { href: "/admin/configuracoes", icon: Settings, label: "Configurações" },
 ];
 

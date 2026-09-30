@@ -7,6 +7,7 @@ import { ptBR } from "date-fns/locale";
 import { ChefHat, RefreshCw, Check, Package, Clock } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useOrderStatus } from "@/components/admin/CourierPicker";
 
 interface OrderItem { name: string; quantity: number; price: number }
 interface Order {
@@ -43,12 +44,13 @@ export default function ProducaoPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Pedido de entrega sem entregador: o servidor avisa e o seletor abre sozinho
+  const { change, modal: courierModal } = useOrderStatus(load);
+
   async function advance(order: Order) {
     setUpdating(order.id);
     try {
-      const nextStatus = order.status === "CONFIRMED" ? "IN_PRODUCTION" : "READY";
-      await axios.patch(`/api/pedidos/${order.id}`, { status: nextStatus });
-      load();
+      await change(order.id, order.status === "CONFIRMED" ? "IN_PRODUCTION" : "READY");
     } finally {
       setUpdating(null);
     }
@@ -116,6 +118,7 @@ export default function ProducaoPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-6xl mx-auto space-y-5">
+      {courierModal}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Produção</h1>

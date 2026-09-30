@@ -127,7 +127,7 @@ export default function EntriesTab({ type, suppliers, costCenters, version, onEd
             <tr className="text-left text-xs text-zinc-500 border-b border-zinc-100">
               <th className="px-4 py-3 font-medium">Vencimento</th>
               <th className="px-4 py-3 font-medium">Descrição</th>
-              <th className="px-4 py-3 font-medium">{isPayable ? "Fornecedor" : "Cliente"}</th>
+              <th className="px-4 py-3 font-medium">{isPayable ? "Fornecedor / Entregador" : "Cliente"}</th>
               <th className="px-4 py-3 font-medium">Centro de custo</th>
               <th className="px-4 py-3 font-medium text-right">Valor</th>
               <th className="px-4 py-3 font-medium">Situação</th>
@@ -153,7 +153,7 @@ export default function EntriesTab({ type, suppliers, costCenters, version, onEd
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-3 text-zinc-600">{(isPayable ? e.supplier?.name : e.customer?.name) ?? "—"}</td>
+                <td className="px-4 py-3 text-zinc-600">{(isPayable ? e.supplier?.name ?? e.courier?.name : e.customer?.name) ?? "—"}</td>
                 <td className="px-4 py-3 text-zinc-600">{e.costCenter?.name ?? "—"}</td>
                 <td className="px-4 py-3 text-right font-semibold whitespace-nowrap">{brl(e.amount)}</td>
                 <td className="px-4 py-3"><StatusBadge e={e} /></td>

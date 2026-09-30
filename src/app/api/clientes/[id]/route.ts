@@ -11,7 +11,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     omit: { passwordHash: true },
     include: {
       children: true,
-      addresses: { include: { deliveryZone: true } },
+      addresses: { include: { deliveryZone: { omit: { courierFee: true } } } },
       loyaltyCard: { include: { transactions: { orderBy: { createdAt: "desc" }, take: 10 } } },
       orders: {
         include: { items: true, payment: true },

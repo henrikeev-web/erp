@@ -99,7 +99,9 @@ export async function POST(req: NextRequest) {
       invoiceDays: data.paymentMethod === "INVOICE" ? data.invoiceDays : undefined,
     });
 
-    return NextResponse.json(order, { status: 201 });
+    // Resposta ao cliente sem campos internos do pedido
+    const { courierId: _c, courierFee: _cf, courierAssignedAt: _ca, createdBy: _cb, discountNote: _dn, ...safe } = order as Record<string, unknown>;
+    return NextResponse.json(safe, { status: 201 });
   } catch (error) {
     if (error instanceof OrderError) return NextResponse.json({ error: error.message }, { status: error.status });
     if (error instanceof z.ZodError) return NextResponse.json({ error: "Dados inválidos", details: error.issues }, { status: 422 });

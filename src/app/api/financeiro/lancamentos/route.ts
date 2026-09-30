@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/api-auth";
+import { syncCourierPayables } from "@/lib/courier";
 import { checkOwnership, entrySchema, isoDate, materializeRecurring, addMonthsUTC, parseDateOnly, todayUTC } from "@/lib/financeiro";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ const ROLES = ["SUPER_ADMIN", "ADMIN"]; // financeiro não é do STAFF operacion
 const include = {
   supplier: { select: { id: true, name: true } },
   customer: { select: { id: true, name: true } },
+  courier: { select: { id: true, name: true } },
   costCenter: { select: { id: true, name: true } },
 };
 
@@ -21,6 +23,7 @@ export async function GET(req: NextRequest) {
   const { unit } = auth;
 
   await materializeRecurring(unit.id);
+  await syncCourierPayables(unit.id);
 
   const sp = new URL(req.url).searchParams;
   const status = sp.get("status");

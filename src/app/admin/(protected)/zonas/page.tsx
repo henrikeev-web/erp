@@ -6,11 +6,13 @@ import { MapPin, Plus, Trash2, Save, X, RefreshCw, Edit2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useSession } from "next-auth/react";
 
 interface Zone {
   id: string; name: string; fee: number; freeAbove: number | null; minOrder: number;
   estimatedMin: number; estimatedMax: number; active: boolean;
   neighborhoods: string[]; cities: string[]; maxRadiusKm: number | null;
+  courierFee?: number; // só vem para administradores
 }
 
 const EMPTY_ZONE = {
@@ -18,9 +20,12 @@ const EMPTY_ZONE = {
   estimatedMin: "30", estimatedMax: "60",
   neighborhoods: "", cities: "São José do Rio Preto",
   maxRadiusKm: "",
+  courierFee: "",
 };
 
 export default function ZonasPage() {
+  const { data: session } = useSession();
+  const isAdmin = ["ADMIN", "SUPER_ADMIN"].includes(session?.user?.role ?? "");
   const [zones, setZones] = useState<Zone[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -31,7 +36,7 @@ export default function ZonasPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await axios.get("/api/zonas-entrega");
+      const { data } = await axios.get("/api/zonas-entrega", { params: { todas: true } });
       setZones(data);
     } finally {
       setLoading(false);
@@ -52,6 +57,7 @@ export default function ZonasPage() {
       neighborhoods: zone.neighborhoods.join(", "),
       cities: zone.cities.join(", "),
       maxRadiusKm: zone.maxRadiusKm != null ? String(zone.maxRadiusKm) : "",
+      courierFee: zone.courierFee != null ? String(zone.courierFee) : "",
     });
     setShowForm(true);
   }
@@ -76,6 +82,8 @@ export default function ZonasPage() {
         neighborhoods: form.neighborhoods.split(",").map(s => s.trim()).filter(Boolean),
         cities: form.cities.split(",").map(s => s.trim()).filter(Boolean),
         maxRadiusKm: form.maxRadiusKm ? parseFloat(form.maxRadiusKm) : null,
+        // Custo do entregador: só administrador envia (o servidor recusa de outros perfis)
+        ...(isAdmin && form.courierFee !== "" ? { courierFee: parseFloat(form.courierFee) } : {}),
         active: true,
       };
       if (editingId) {
@@ -129,6 +137,7 @@ export default function ZonasPage() {
                   <p className="text-base font-semibold text-zinc-900">{zone.name}</p>
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-zinc-500 mt-1">
                     <span className="font-medium text-zinc-700">Taxa: {formatCurrency(zone.fee)}</span>
+                    {isAdmin && zone.courierFee != null && <span className="text-amber-700">🛵 Entregador: {formatCurrency(zone.courierFee)}</span>}
                     {zone.maxRadiusKm != null && <span className="text-blue-600 font-medium">📍 Até {zone.maxRadiusKm} km</span>}
                     {zone.freeAbove && <span>Grátis acima de {formatCurrency(zone.freeAbove)}</span>}
                     {zone.minOrder > 0 && <span>Pedido mín: {formatCurrency(zone.minOrder)}</span>}
@@ -198,6 +207,13 @@ export default function ZonasPage() {
                   </div>
                 </div>
               </div>
+              {isAdmin && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                  <label className="text-xs font-semibold text-amber-900">Custo do entregador por entrega (R$)</label>
+                  <Input type="number" step="0.01" min="0" value={form.courierFee} onChange={(e) => setForm(f => ({ ...f, courierFee: e.target.value }))} className="mt-1 bg-white" placeholder="Ex: 6.00" />
+                  <p className="text-[11px] text-amber-800 mt-1">Quanto o entregador recebe por entrega nesta região. Já vem incluído na taxa cobrada do cliente. Interno: o cliente não vê. É gravado no pedido ao escolher o entregador, então mudar aqui não altera entregas passadas.</p>
+                </div>
+              )}
               <div>
                 <label className="text-xs font-medium text-zinc-500">Raio máximo (km) — deixe vazio para usar bairros/cidades</label>
                 <Input type="number" step="0.5" min="0" value={form.maxRadiusKm} onChange={(e) => setForm(f => ({ ...f, maxRadiusKm: e.target.value }))} className="mt-1" placeholder="Ex: 5 → atende até 5km do CD" />

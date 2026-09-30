@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/api-auth";
+import { syncCourierPayables } from "@/lib/courier";
 import { addDaysUTC, materializeRecurring, todayUTC } from "@/lib/financeiro";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ export async function GET() {
   if (auth instanceof NextResponse) return auth;
   const unitId = auth.unit.id;
   await materializeRecurring(unitId);
+  await syncCourierPayables(unitId);
 
   const today = todayUTC();
   const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));

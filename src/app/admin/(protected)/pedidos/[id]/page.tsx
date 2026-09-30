@@ -18,6 +18,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const order = await prisma.order.findFirst({
     where: { id, unitId: unit.id },
     include: {
+      courier: { select: { id: true, name: true } },
       customer: { omit: { passwordHash: true }, include: { children: true, loyaltyCard: true } },
       address: { include: { deliveryZone: true } },
       items: true,
@@ -178,7 +179,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       )}
 
       {/* Ações */}
-      <OrderActions order={{ id: order.id, status: order.status, number: order.number }} />
+      <OrderActions order={{ id: order.id, status: order.status, number: order.number, type: order.type, courier: order.courier }} />
 
       {/* Documentos fiscais */}
       <Card>

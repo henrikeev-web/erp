@@ -53,6 +53,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     if (entry.status !== "OPEN") return NextResponse.json({ error: "Reabra o lançamento para editar" }, { status: 409 });
     const d = editSchema.parse(body);
+    // Entregas e pedidos faturados: valor/vencimento/descrição vêm da origem (seriam refeitos no próximo fechamento)
+    if ((entry.source === "COURIER" || entry.source === "ORDER") && (d.amount !== undefined || d.dueDate !== undefined || d.description !== undefined)) {
+      return NextResponse.json({ error: "Lançamento automático: só observações e centro de custo podem ser editados" }, { status: 409 });
+    }
     const bad = await checkOwnership(unit.id, d);
     if (bad) return NextResponse.json({ error: bad }, { status: 400 });
     const updated = await prisma.financialEntry.update({

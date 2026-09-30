@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
 
   const zones = await prisma.deliveryZone.findMany({
     where: { unitId: unit.id, active: true },
+    omit: { courierFee: true }, // custo do entregador é interno: esta rota é pública
     orderBy: { maxRadiusKm: "asc" },
   });
 

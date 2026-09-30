@@ -38,6 +38,8 @@ export default function NovoPedidoPage() {
   const [addressId, setAddressId] = useState<string>("");
   const [zones, setZones] = useState<Zone[]>([]);
   const [zoneId, setZoneId] = useState("");
+  const [couriers, setCouriers] = useState<{ id: string; name: string }[]>([]);
+  const [courierId, setCourierId] = useState("");
   const [addr, setAddr] = useState({ cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "SP" });
 
   // ── itens ──
@@ -63,6 +65,7 @@ export default function NovoPedidoPage() {
   useEffect(() => {
     axios.get("/api/produtos", { params: { includeInactive: true } }).then(({ data }) => setProducts(data.filter((p: Product & { active: boolean }) => p.active)));
     axios.get("/api/zonas-entrega").then(({ data }) => setZones(data));
+    axios.get("/api/entregadores").then(({ data }) => setCouriers(data));
   }, []);
 
   useEffect(() => {
@@ -106,6 +109,7 @@ export default function NovoPedidoPage() {
     if (!dValid) return setError(dType === "PERCENT" ? "Desconto deve ficar entre 0 e 100%" : "Desconto maior que o valor do pedido");
     if (type === "DELIVERY" && addressId === "new" && (!addr.cep || !addr.street || !addr.number || !addr.neighborhood || !addr.city)) return setError("Preencha o endereço de entrega");
     if (type === "DELIVERY" && !zone) return setError("Selecione a zona de entrega");
+    if (type === "DELIVERY" && !courierId) return setError("Selecione o entregador (o pedido entra direto em produção)");
     if (method === "INVOICE" && !(parseInt(invoiceDays) >= 1 && parseInt(invoiceDays) <= 120)) return setError("Prazo do faturamento: 1 a 120 dias");
 
     setSaving(true);
@@ -120,6 +124,7 @@ export default function NovoPedidoPage() {
         type,
         addressId: type === "DELIVERY" ? finalAddressId : undefined,
         deliveryZoneId: type === "DELIVERY" ? zone?.id : undefined,
+        courierId: type === "DELIVERY" ? courierId : undefined,
         paymentMethod: method,
         invoiceDays: method === "INVOICE" ? parseInt(invoiceDays) : undefined,
         markPaid: method !== "INVOICE" ? markPaid : undefined,
@@ -209,6 +214,14 @@ export default function NovoPedidoPage() {
                     {zones.map((z) => <option key={z.id} value={z.id}>{z.name} — {formatCurrency(z.fee)}</option>)}
                   </select>
                 )}
+                <div>
+                  <label className="text-xs font-medium text-zinc-600 mb-1.5 block">Entregador *</label>
+                  <select className={cls} value={courierId} onChange={(e) => setCourierId(e.target.value)}>
+                    <option value="">Selecione quem fará a entrega…</option>
+                    {couriers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  {couriers.length === 0 && <p className="text-xs text-red-600 mt-1">Nenhum entregador cadastrado — peça a um administrador (menu Entregadores).</p>}
+                </div>
                 {zone && subtotal > 0 && subtotal < zone.minOrder && <p className="text-xs text-red-600">Pedido mínimo para esta zona: {formatCurrency(zone.minOrder)}</p>}
               </div>
             )}

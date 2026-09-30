@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { orderStatusLabel } from "@/lib/utils";
-import { Loader2, Printer } from "lucide-react";
+import { Bike, Loader2, Printer } from "lucide-react";
+import { useOrderStatus } from "./CourierPicker";
 
 const TRANSITIONS: Record<string, { next: string; label: string; color: string }> = {
   PENDING: { next: "CONFIRMED", label: "Confirmar pedido", color: "bg-blue-500 hover:bg-blue-600" },
@@ -16,7 +17,7 @@ const TRANSITIONS: Record<string, { next: string; label: string; color: string }
 };
 
 interface OrderActionsProps {
-  order: { id: string; status: string; number: number };
+  order: { id: string; status: string; number: number; type?: string; courier?: { id: string; name: string } | null };
 }
 
 export default function OrderActions({ order }: OrderActionsProps) {
@@ -26,12 +27,15 @@ export default function OrderActions({ order }: OrderActionsProps) {
 
   const transition = TRANSITIONS[order.status];
 
+  // Pedido de entrega sem entregador: o servidor avisa e o seletor abre sozinho
+  const { change, pickCourier, modal: courierModal } = useOrderStatus(() => router.refresh());
+  const canSwapCourier = order.type === "DELIVERY" && ["IN_PRODUCTION", "READY", "DISPATCHED"].includes(order.status);
+
   async function handleStatusChange() {
     if (!transition) return;
     setLoading(true);
     try {
-      await axios.patch(`/api/pedidos/${order.id}`, { status: transition.next });
-      router.refresh();
+      await change(order.id, transition.next);
     } finally {
       setLoading(false);
     }
@@ -64,9 +68,22 @@ export default function OrderActions({ order }: OrderActionsProps) {
     }
   }
 
+  const courierLine = order.type === "DELIVERY" && (
+    <div className="w-full flex items-center gap-2 text-sm text-zinc-600">
+      <Bike className="w-4 h-4 text-orange-500" />
+      Entregador: <strong className="text-zinc-900">{order.courier?.name ?? "não definido"}</strong>
+      {canSwapCourier && (
+        <button onClick={() => pickCourier(order.id, order.courier?.id)} className="text-orange-600 hover:underline">
+          {order.courier ? "trocar" : "definir"}
+        </button>
+      )}
+    </div>
+  );
+
   if (["DELIVERED", "CANCELLED"].includes(order.status)) {
     return (
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
+        {courierLine}
         <Button onClick={handlePrintRomaneio} disabled={printLoading} variant="outline" className="flex items-center gap-2">
           {printLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
           Romaneio
@@ -77,6 +94,8 @@ export default function OrderActions({ order }: OrderActionsProps) {
 
   return (
     <div className="flex gap-2 flex-wrap">
+      {courierModal}
+      {courierLine}
       {transition && (
         <Button
           onClick={handleStatusChange}

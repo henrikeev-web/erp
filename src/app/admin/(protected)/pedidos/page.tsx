@@ -11,6 +11,7 @@ import OrderStatusBadge from "@/components/admin/OrderStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AdminEvent } from "@/lib/sse";
+import { useOrderStatus } from "@/components/admin/CourierPicker";
 
 const STATUS_TABS = [
   { value: "", label: "Todos" },
@@ -45,6 +46,7 @@ interface Payment {
 interface Order {
   id: string; number: number; status: string; type: string;
   total: number; createdAt: string; paymentLinkUrl: string | null; priceTier?: string; invoiceDays?: number | null;
+  courier?: { id: string; name: string } | null;
   customer: { name: string; phone: string };
   payment: Payment | null;
   items: { name: string; quantity: number }[];
@@ -115,10 +117,8 @@ export default function PedidosPage() {
       )
     : orders;
 
-  async function updateStatus(orderId: string, newStatus: string) {
-    await axios.patch(`/api/pedidos/${orderId}`, { status: newStatus });
-    load();
-  }
+  // Pedido de entrega sem entregador: o servidor avisa e o seletor abre sozinho
+  const { change: updateStatus, modal: courierModal } = useOrderStatus(load);
 
   async function resendPaymentLink(order: Order) {
     setResendingId(order.id);
@@ -146,6 +146,8 @@ export default function PedidosPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-5">
+      {courierModal}
+
       {/* Auto-print toast */}
       {printToast && (
         <div style={{
@@ -281,6 +283,7 @@ export default function PedidosPage() {
                   <p className="text-xs text-zinc-400 mt-0.5">
                     {format(new Date(order.createdAt), "dd/MM HH:mm", { locale: ptBR })}
                     {order.payment && ` · ${paymentMethodLabel(order.payment.method)}${order.payment.method === "INVOICE" && order.invoiceDays ? ` ${order.invoiceDays}d` : ""}`}
+                    {order.courier && <span className="ml-1.5 text-[11px] text-zinc-500">🛵 {order.courier.name}</span>}
                     {order.priceTier === "RESELLER" && <span className="ml-1.5 text-[11px] px-1.5 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-800">Revenda</span>}
                     {order.type === "PICKUP" && " · 🏪 Retirada"}
                   </p>

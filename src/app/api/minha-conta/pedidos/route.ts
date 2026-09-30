@@ -10,6 +10,8 @@ export async function GET() {
 
   const orders = await (prisma.order as any).findMany({
     where: { customerId: customer!.id },
+    // Campos internos do pedido (entregador/custo, quem criou, motivo do desconto) nunca vão para o cliente
+    omit: { courierId: true, courierFee: true, courierAssignedAt: true, createdBy: true, discountNote: true },
     include: {
       items: { include: { product: { select: { images: { where: { isMain: true }, take: 1 } } } } },
       payment: { select: { method: true, status: true } },

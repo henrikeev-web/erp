@@ -29,8 +29,38 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   try {
-    const { status, cancelReason } = await req.json();
-    if (!STATUSES.includes(status)) return NextResponse.json({ error: "Status inválido" }, { status: 400 });
+    const { status, cancelReason, courierId } = await req.json();
+    if (status !== undefined && !STATUSES.includes(status)) return NextResponse.json({ error: "Status inválido" }, { status: 400 });
+    if (status === undefined && courierId === undefined) return NextResponse.json({ error: "Nada para atualizar" }, { status: 400 });
+
+    const current = await prisma.order.findFirst({
+      where: { id, unitId: auth.unit.id },
+      select: { status: true, type: true, courierId: true, courierFee: true, deliveryZone: { select: { courierFee: true } } },
+    });
+    if (!current) return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
+
+    // ── Entregador ─────────────────────────────────────────────────────────
+    // Pedido de ENTREGA não avança para produção/pronto/enviado/entregue sem entregador (retirada não precisa).
+    // O custo do entregador (por região) é gravado no pedido ao escolher e não muda se a zona for reajustada depois.
+    const isDelivery = current.type === "DELIVERY";
+    let courierData: Record<string, unknown> = {};
+    if (courierId !== undefined) {
+      if (!isDelivery) return NextResponse.json({ error: "Entregador só se aplica a pedidos de entrega" }, { status: 400 });
+      if (["DELIVERED", "CANCELLED"].includes(current.status) || status === "CANCELLED") {
+        return NextResponse.json({ error: "Pedido finalizado: não é possível trocar o entregador" }, { status: 409 });
+      }
+      const courier = await prisma.courier.findFirst({ where: { id: courierId, unitId: auth.unit.id, active: true }, select: { id: true } });
+      if (!courier) return NextResponse.json({ error: "Entregador inválido" }, { status: 400 });
+      courierData = {
+        courierId: courier.id,
+        courierFee: current.courierFee ?? current.deliveryZone?.courierFee ?? 0, // mantém o valor gravado na 1ª escolha
+        courierAssignedAt: new Date(),
+      };
+    }
+    const targetStatus: string = status ?? current.status;
+    if (isDelivery && ["IN_PRODUCTION", "READY", "DISPATCHED", "DELIVERED"].includes(targetStatus) && !(courierData.courierId ?? current.courierId)) {
+      return NextResponse.json({ error: "Selecione o entregador para este pedido de entrega", code: "COURIER_REQUIRED" }, { status: 409 });
+    }
 
     const timestampMap: Record<string, Record<string, Date | null>> = {
       CONFIRMED: { confirmedAt: new Date() },
@@ -43,15 +73,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const order = await prisma.order.update({
       where: { id, unitId: auth.unit.id },
       data: {
-        status,
-        ...timestampMap[status],
+        ...(status !== undefined && { status }),
+        ...(status !== undefined && timestampMap[status]),
+        ...courierData,
       },
       include: {
+        courier: { select: { id: true, name: true } },
         customer: { select: { name: true, phone: true } },
         items: true,
         payment: true,
       },
     });
+
+    // Só troca de entregador (sem mudar status): nada mais a fazer
+    if (status === undefined) return NextResponse.json(order);
 
     // Faturado NÃO vira pago ao entregar: quem baixa é a conta a receber (financeiro)
     if (status === "DELIVERED" && order.payment && order.payment.method !== "INVOICE") {

@@ -33,7 +33,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const { id: customerId } = await params;
   const addresses = await prisma.customerAddress.findMany({
     where: { customerId, customer: { unitId: auth.unit.id } },
-    include: { deliveryZone: true },
+    include: { deliveryZone: { omit: { courierFee: true } } },
   });
   return NextResponse.json(addresses);
 }

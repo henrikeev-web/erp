@@ -18,7 +18,7 @@ export interface Entry {
   paidAt: string | null; paidAmount: number | null; payMethod: string | null; notes: string | null;
   source: "MANUAL" | "RECURRING" | "ORDER" | "COURIER";
   installmentNumber: number | null; installmentTotal: number | null;
-  supplier: Ref | null; customer: Ref | null; costCenter: Ref | null;
+  supplier: Ref | null; customer: Ref | null; costCenter: Ref | null; courier?: Ref | null;
 }
 
 export interface Recurring {

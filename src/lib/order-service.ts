@@ -46,6 +46,8 @@ export interface CreateOrderInput {
   /** Marca o pagamento como recebido na criação (balcão). Ignorado em INVOICE. */
   markPaid?: boolean;
   createdBy?: string;
+  /** Entregador (só pedido de ENTREGA). Obrigatório quando o pedido já nasce em produção. */
+  courierId?: string;
 }
 
 const PAY_ON_DELIVERY = ["CASH", "PIX", "CREDIT_CARD", "DEBIT_CARD", "VOUCHER"];
@@ -123,6 +125,20 @@ export async function createOrder(input: CreateOrderInput) {
       return { productId, name: p.name, price: unitPrice, quantity, total, notes: notesByProduct.get(productId) };
     });
     subtotal = Math.round(subtotal * 100) / 100;
+
+    // ── Entregador: custo conforme a região, gravado no pedido (não muda se a zona for reajustada) ──
+    const isDelivery = (input.type ?? "DELIVERY") === "DELIVERY";
+    let courierId: string | undefined;
+    let courierFee: number | undefined;
+    if (input.courierId) {
+      if (!isDelivery) throw new OrderError("Entregador só se aplica a pedidos de entrega");
+      const courier = await tx.courier.findFirst({ where: { id: input.courierId, unitId: unit.id, active: true }, select: { id: true } });
+      if (!courier) throw new OrderError("Entregador inválido");
+      courierId = courier.id;
+      courierFee = zone?.courierFee ?? 0;
+    } else if (isDelivery && input.initialStatus && input.initialStatus !== "PENDING") {
+      throw new OrderError("Selecione o entregador para pedidos de entrega em produção");
+    }
 
     // ── Frete ─────────────────────────────────────────────────────────────
     let deliveryFee = 0;
@@ -207,6 +223,9 @@ export async function createOrder(input: CreateOrderInput) {
         status: input.initialStatus ?? "PENDING",
         ...(input.initialStatus && input.initialStatus !== "PENDING" ? { confirmedAt: new Date() } : {}),
         priceTier: tier,
+        courierId,
+        courierFee,
+        courierAssignedAt: courierId ? new Date() : undefined,
         invoiceDays,
         createdBy: input.createdBy,
         discountNote,
