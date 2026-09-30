@@ -25,7 +25,7 @@ function MascoteEmpty() {
 }
 
 export default function CartDrawer({ open, onClose, onCheckout, freeFrom, deliveryFee, showFreeHint }: CartDrawerProps) {
-  const { items, remove, updateQty, subtotal } = useCart();
+  const { items, remove, removeLine, updateQty, subtotal } = useCart();
 
   const sub = subtotal();
   const total = sub + (sub > 0 ? deliveryFee : 0);
@@ -94,10 +94,10 @@ export default function CartDrawer({ open, onClose, onCheckout, freeFrom, delive
         {items.length > 0 && (
           <>
             <div style={{ flex: 1, overflowY: "auto", padding: "8px 20px" }}>
-              {items.map(({ product, quantity }, idx) => {
+              {items.map(({ product, quantity, lineId, combo, comboSummary }, idx) => {
                 const c = PALETTE[idx % 6];
                 return (
-                  <div key={product.id} style={{ display: "flex", gap: 13, padding: "15px 0", borderBottom: "1px solid #EEE3D0" }}>
+                  <div key={lineId ?? product.id} style={{ display: "flex", gap: 13, padding: "15px 0", borderBottom: "1px solid #EEE3D0" }}>
                     <div style={{ width: 62, height: 62, borderRadius: 15, flex: "none", background: c.tint, position: "relative", overflow: "hidden" }}>
                       {product.imageUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -108,8 +108,9 @@ export default function CartDrawer({ open, onClose, onCheckout, freeFrom, delive
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontFamily: "'Baloo 2',sans-serif", fontWeight: 600, fontSize: 14.5, lineHeight: 1.15, color: "#4A3526" }}>{product.name}</div>
-                      <div style={{ fontSize: 12.5, color: "#9A8A78", marginTop: 2 }}>{formatCurrency(product.price)} cada</div>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", marginTop: 8, gap: 4 }}>
+                      <div style={{ fontSize: 12.5, color: "#9A8A78", marginTop: 2 }}>{formatCurrency(product.price)} {combo ? "· valor fixo" : "cada"}</div>
+                      {combo && <div style={{ fontSize: 11.5, color: "#9A8A78", marginTop: 4, lineHeight: 1.35 }}>{comboSummary}</div>}
+                      {!combo && <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", marginTop: 8, gap: 4 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#fff", border: "2px solid #EBDDC8", borderRadius: 11, padding: 3, width: "max-content" }}>
                           <button onClick={() => updateQty(product.id, quantity - 1)} style={{ width: 28, height: 28, border: "none", background: "#F7EEDF", color: "#4A3526", borderRadius: 8, fontSize: 17, fontWeight: 700, cursor: "pointer", lineHeight: 0 }}>−</button>
                           <span style={{ minWidth: 26, textAlign: "center", fontWeight: 700, fontSize: 14, color: "#4A3526", fontFamily: "'Baloo 2',sans-serif" }}>{quantity}</span>
@@ -121,11 +122,11 @@ export default function CartDrawer({ open, onClose, onCheckout, freeFrom, delive
                         {product.stock !== undefined && quantity >= product.stock && (
                           <span style={{ fontSize: 10, color: "#E55C5A", fontWeight: 600, fontFamily: "'Poppins',sans-serif" }}>Limite de estoque</span>
                         )}
-                      </div>
+                      </div>}
                     </div>
                     <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between" }}>
                       <button
-                        onClick={() => remove(product.id)}
+                        onClick={() => (lineId ? removeLine(lineId) : remove(product.id))}
                         style={{ border: "none", background: "none", color: "#C7B89D", cursor: "pointer", padding: 2 }}
                         onMouseEnter={(e) => (e.currentTarget.style.color = "#E55C5A")}
                         onMouseLeave={(e) => (e.currentTarget.style.color = "#C7B89D")}

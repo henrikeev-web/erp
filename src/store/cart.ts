@@ -17,6 +17,10 @@ export interface CartItem {
   product: CartProduct;
   quantity: number;
   notes?: string;
+  // Combo: cada combo montado é uma LINHA própria (a escolha muda de um para outro). Quantidade sempre 1.
+  lineId?: string;
+  combo?: { productId: string; quantity: number }[];
+  comboSummary?: string; // ex.: "10× Frango · 5× Carne" (só exibição; o servidor valida a escolha de novo)
 }
 
 interface CartStore {
@@ -25,6 +29,8 @@ interface CartStore {
   discount: number;
   add: (product: CartProduct, quantity?: number) => "ok" | "stock_limit";
   remove: (productId: string) => void;
+  addCombo: (product: CartProduct, picks: { productId: string; quantity: number }[], summary: string) => void;
+  removeLine: (lineId: string) => void;
   updateQty: (productId: string, quantity: number) => "ok" | "stock_limit";
   updateNotes: (productId: string, notes: string) => void;
   clear: () => void;
@@ -48,7 +54,7 @@ export const useCart = create<CartStore>()(
         let result: "ok" | "stock_limit" = "ok";
 
         set((state) => {
-          const existing = state.items.find((i) => i.product.id === product.id);
+          const existing = state.items.find((i) => i.product.id === product.id && !i.combo);
           if (existing) {
             const desired = existing.quantity + quantity;
             const capped = Math.min(desired, maxQty);
@@ -59,7 +65,7 @@ export const useCart = create<CartStore>()(
             if (capped < desired) result = "stock_limit";
             return {
               items: state.items.map((i) =>
-                i.product.id === product.id ? { ...i, quantity: capped, product } : i
+                i.product.id === product.id && !i.combo ? { ...i, quantity: capped, product } : i
               ),
             };
           }
@@ -74,9 +80,16 @@ export const useCart = create<CartStore>()(
 
       remove: (productId) => {
         set((state) => ({
-          items: state.items.filter((i) => i.product.id !== productId),
+          items: state.items.filter((i) => i.product.id !== productId || !!i.combo),
         }));
       },
+
+      addCombo: (product, picks, summary) =>
+        set((state) => ({
+          items: [...state.items, { product, quantity: 1, combo: picks, comboSummary: summary, lineId: `combo:${product.id}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}` }],
+        })),
+
+      removeLine: (lineId) => set((state) => ({ items: state.items.filter((i) => i.lineId !== lineId) })),
 
       updateQty: (productId, quantity) => {
         if (quantity <= 0) {
@@ -85,13 +98,13 @@ export const useCart = create<CartStore>()(
         }
         let result: "ok" | "stock_limit" = "ok";
         set((state) => {
-          const existing = state.items.find((i) => i.product.id === productId);
+          const existing = state.items.find((i) => i.product.id === productId && !i.combo);
           const maxQty = existing?.product.stock ?? Infinity;
           const capped = Math.min(quantity, maxQty);
           if (capped < quantity) result = "stock_limit";
           return {
             items: state.items.map((i) =>
-              i.product.id === productId ? { ...i, quantity: capped } : i
+              i.product.id === productId && !i.combo ? { ...i, quantity: capped } : i
             ),
           };
         });
@@ -101,7 +114,7 @@ export const useCart = create<CartStore>()(
       updateNotes: (productId, notes) => {
         set((state) => ({
           items: state.items.map((i) =>
-            i.product.id === productId ? { ...i, notes } : i
+            i.product.id === productId && !i.combo ? { ...i, notes } : i
           ),
         }));
       },

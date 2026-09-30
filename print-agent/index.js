@@ -103,6 +103,8 @@ async function printOrder(orderId) {
     const total = formatCurrency(item.total);
     const spaces = 32 - line.length - total.length;
     printer.println(line + " ".repeat(Math.max(1, spaces)) + total);
+    // Combo: lista o que foi escolhido (o que a cozinha precisa preparar)
+    for (const c of item.components || []) printer.println(`   - ${c.quantity}x ${c.name}`);
     if (item.notes) printer.println(`  obs: ${item.notes}`);
   }
 

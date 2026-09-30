@@ -30,6 +30,7 @@ const createOrderSchema = z.object({
     productId: z.string(),
     quantity: z.number().int().min(1),
     notes: z.string().optional(),
+    combo: z.array(z.object({ productId: z.string(), quantity: z.number().int().min(0) })).optional(),
   })).min(1),
 });
 
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
         customer: { select: { id: true, name: true, phone: true, email: true } },
         address: true,
         deliveryZone: { select: { name: true, fee: true } },
-        items: true,
+        items: { include: { components: true } },
         payment: true,
       },
       orderBy: { createdAt: "desc" },

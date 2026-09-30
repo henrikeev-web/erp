@@ -21,7 +21,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   try {
     // Campos de escopo/controle nunca vêm do cliente
-    const { id: _id, unitId: _u, brandId: _b, createdAt: _c, updatedAt: _up, ...data } = await req.json();
+    const { id: _id, unitId: _u, brandId: _b, createdAt: _c, updatedAt: _up, kind: _k, comboSize: _cs, comboItems: _ci, ...data } = await req.json();
 
     // Campos internos validados e normalizados (vazio vira null)
     const internal = parseInternalFields(data);
@@ -32,6 +32,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       const cat = await prisma.category.findFirst({ where: { id: data.categoryId, unitId: auth.unit.id }, select: { id: true } });
       if (!cat) return NextResponse.json({ error: "Categoria inválida" }, { status: 400 });
     }
+
+    // Combo não tem preço de revenda (o revendedor paga o preço do combo)
+    const isCombo = await prisma.product.findFirst({ where: { id, unitId: auth.unit.id, kind: "COMBO" }, select: { id: true } });
+    if (isCombo) data.resalePrice = null;
 
     const product = await prisma.product.update({
       where: { id, unitId: auth.unit.id },

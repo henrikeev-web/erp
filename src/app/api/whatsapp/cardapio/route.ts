@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   if (unit instanceof NextResponse) return unit;
 
   const products = await prisma.product.findMany({
-    where: { unitId: unit.id, active: true },
+    where: { unitId: unit.id, active: true, kind: "SIMPLE" }, // combo exige montar a escolha: fora do bot,
     include: {
       images: { where: { isMain: true }, take: 1 },
       stockItem: { select: { quantity: true } },

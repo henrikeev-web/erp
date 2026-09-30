@@ -27,7 +27,7 @@ export async function getSessionPricing(unitId: string): Promise<{ tier: Pricing
 /** Argumento `omit` das consultas públicas de produto para o nível informado. */
 export const productOmitFor = (tier: PricingTier) => (tier === "RESELLER" ? RESELLER_PRODUCT_OMIT : PUBLIC_PRODUCT_OMIT);
 
-type WithPrice = { price: number; priceOriginal?: number | null; resalePrice?: number | null };
+type WithPrice = { price: number; priceOriginal?: number | null; resalePrice?: number | null; kind?: string };
 
 /**
  * Aplica o nível de preço a um produto que vai para o navegador.
@@ -37,7 +37,8 @@ type WithPrice = { price: number; priceOriginal?: number | null; resalePrice?: n
 // Tipado como T (resalePrice é opcional no tipo): o campo é removido em tempo de execução.
 export function applyTierPricing<T extends WithPrice>(product: T, tier: PricingTier): T {
   const { resalePrice, ...rest } = product;
-  if (tier === "RESELLER") {
+  // Combo não tem preço de revenda: revendedor paga o preço do combo
+  if (tier === "RESELLER" && product.kind !== "COMBO") {
     return { ...rest, price: resalePrice ?? product.price, ...("priceOriginal" in rest ? { priceOriginal: null } : {}) } as T;
   }
   return rest as T;

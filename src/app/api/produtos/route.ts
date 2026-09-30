@@ -4,6 +4,7 @@ import { requireStaff, resolveUnit } from "@/lib/api-auth";
 import { parseInternalFields } from "@/lib/product-fields";
 import { applyTierPricing, getSessionPricing, productOmitFor } from "@/lib/pricing";
 import type { PricingTier } from "@/lib/pricing";
+import { withComboData } from "@/lib/combo-data";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -56,7 +57,8 @@ export async function GET(req: NextRequest) {
     });
 
     // Painel (staff) vê tudo; público recebe o preço do seu nível e NUNCA o campo resalePrice
-    return NextResponse.json(includeInactive ? products : products.map((p: any) => applyTierPricing(p, tier)), {
+    const shown = includeInactive ? products : products.map((p: any) => applyTierPricing(p, tier));
+    return NextResponse.json(await withComboData(unitId, shown as any[]), {
       headers: tier === "RESELLER" ? { "Cache-Control": "private, no-store" } : undefined,
     });
   } catch (error) {

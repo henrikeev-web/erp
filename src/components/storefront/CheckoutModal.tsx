@@ -199,7 +199,7 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
         changeAmount: paymentMethod === "CASH" && changeAmount ? parseFloat(changeAmount) : undefined,
         invoiceDays: paymentMethod === "INVOICE" ? invoiceDays : undefined,
         couponCode: isReseller ? undefined : couponCode || undefined,
-        items: items.map((i) => ({ productId: i.product.id, quantity: i.quantity, notes: i.notes })),
+        items: items.map((i) => ({ productId: i.product.id, quantity: i.quantity, notes: i.notes, combo: i.combo })), // combo: escolha dentro do combo (validada no servidor)
       });
 
       setOrderId(order.id);
@@ -557,8 +557,8 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
 
               <div className="bg-zinc-50 rounded-2xl divide-y divide-zinc-100">
                 {items.map((item) => (
-                  <div key={item.product.id} className="flex justify-between py-2.5 px-3 text-sm">
-                    <span className="text-zinc-700">{item.quantity}x {item.product.name}</span>
+                  <div key={item.lineId ?? item.product.id} className="flex justify-between py-2.5 px-3 text-sm">
+                    <span className="text-zinc-700">{item.quantity}x {item.product.name}{item.comboSummary && <span className="block text-xs text-zinc-400">{item.comboSummary}</span>}</span>
                     <span className="font-medium text-zinc-900">{formatCurrency(item.product.price * item.quantity)}</span>
                   </div>
                 ))}

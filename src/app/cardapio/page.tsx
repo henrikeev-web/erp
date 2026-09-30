@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUnit } from "@/lib/unit";
 import { applyTierPricing, getSessionPricing, productOmitFor } from "@/lib/pricing";
+import { withComboData } from "@/lib/combo-data";
 import MenuClient from "@/components/storefront/MenuClient";
 
 export const dynamic = "force-dynamic";
@@ -60,7 +61,7 @@ async function getMenuData() {
   return {
     brand, categories, bannerSlides,
     pricingTier: tier,
-    products: products.map((p: any) => applyTierPricing(p, tier)),
+    products: await withComboData(unit.id, products.map((p: any) => applyTierPricing(p, tier))),
     thematicMenus: thematicMenus.map((m: any) => ({
       ...m,
       products: m.products.map((tp: any) => ({ ...tp, product: applyTierPricing(tp.product, tier) })),

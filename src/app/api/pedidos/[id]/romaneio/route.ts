@@ -17,7 +17,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     include: {
       customer: { omit: { passwordHash: true } },
       address: { include: { deliveryZone: true } },
-      items: true,
+      items: { include: { components: true } },
       payment: true,
     },
   });
@@ -44,7 +44,7 @@ function generateRomaneioHtml(order: {
   notes: string | null;
   customer: { name: string; phone: string; email: string | null };
   address: { street: string; number: string; complement: string | null; neighborhood: string; city: string; state: string; cep: string; deliveryZone: { name: string } | null } | null;
-  items: { name: string; quantity: number; price: number; total: number; notes: string | null }[];
+  items: { name: string; quantity: number; price: number; total: number; notes: string | null; components?: { name: string; quantity: number }[] }[];
   payment: { method: string; status: string; changeAmount: number | null } | null;
 }) {
   const date = new Date(order.createdAt).toLocaleString("pt-BR");
@@ -54,7 +54,7 @@ function generateRomaneioHtml(order: {
       (item) => `
       <tr>
         <td>${item.quantity}x</td>
-        <td>${esc(item.name)}${item.notes ? `<br><small style="color:#666">${esc(item.notes)}</small>` : ""}</td>
+        <td>${esc(item.name)}${item.components?.length ? `<br><small style="color:#444">${item.components.map((c) => `${c.quantity}x ${esc(c.name)}`).join("<br>")}</small>` : ""}${item.notes ? `<br><small style="color:#666">${esc(item.notes)}</small>` : ""}</td>
         <td style="text-align:right">${formatCurrency(item.price)}</td>
         <td style="text-align:right"><strong>${formatCurrency(item.total)}</strong></td>
       </tr>`

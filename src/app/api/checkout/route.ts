@@ -36,6 +36,7 @@ const schema = z.object({
     productId: z.string(),
     quantity: z.number().int().min(1),
     notes: z.string().optional(),
+    combo: z.array(z.object({ productId: z.string(), quantity: z.number().int().min(0) })).optional(), // escolha dentro do combo
   })).min(1),
 });
 

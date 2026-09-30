@@ -105,6 +105,20 @@ Variáveis: `BASE_DOMAIN`, `AUTH_HOST`, `COOKIE_DOMAIN` (prod, `.banguelas.com.b
 
 ---
 
+## Combos personalizados
+
+Combo = `Product` com `kind: COMBO`: **preço fixo**, **quantidade EXATA** (`comboSize`, ex.: 20) e uma lista de produtos do cardápio (`ComboItem`, com `maxQty` opcional por produto). O cliente distribui a quantidade entre os produtos; sem limite indicado, vale qualquer quantidade até completar o total. Cadastro em `/admin/combos` (qualquer staff).
+
+- **Regras** em `src/lib/combo.ts` (módulo puro, usado pelo servidor e pelo construtor da loja): `validatePicks` (soma exata, limite por produto, sem estoque, produto de fora), `isComboAvailable`, `validateComboDefinition` (os limites precisam permitir fechar a quantidade). Teste: `npx tsx scripts/test-combo.ts`.
+- **Pedido** (`createOrder`): item de combo traz `combo: [{productId, quantity}]` (por unidade do combo). Cada combo é linha própria (não funde). Preço = `Product.price` do combo — **sem preço de revenda** (revendedor paga o preço do combo; `applyTierPricing` e o PUT de produto ignoram `resalePrice` em combo). O que foi escolhido fica em `OrderItemComponent` (já multiplicado pela quantidade da linha).
+- **Estoque**: baixa dos produtos INDIVIDUAIS, **somando tudo que o pedido consome por produto** (avulsos + componentes de todos os combos) numa checagem atômica; combo não tem `StockItem`. Sem estoque suficiente → 409 e o pedido inteiro é desfeito.
+- **Cardápio**: produtos COMBO recebem `combo: { size, available, options[] }` (`src/lib/combo-data.ts`) só com nome, limite, estoque e foto — **nenhum preço de componente**. Produto sem estoque aparece apagado com "sem estoque"; combo sem como ser montado fica "esgotado". WhatsApp não vende combo (fora do cardápio do bot; pedido é recusado).
+- **Carrinho**: cada combo montado é uma linha (`lineId`, `combo`, `comboSummary`, quantidade fixa 1). Funções de produto simples ignoram linhas de combo.
+- **Produção/expedição**: a cozinha prepara os **componentes**, não "o combo" — lista consolidada do kanban, romaneio, tela do pedido, impressora térmica e histórico do cliente mostram a composição. Ao criar telas que listem itens de pedido, incluir `components`.
+- **Pendente conhecido**: cancelar pedido não devolve estoque (vale para produtos simples e combos).
+
+---
+
 ## Entregadores
 
 Cadastro em `/admin/entregadores` (abas Relatório e Cadastro) — **só ADMIN**; o entregador **não acessa o sistema**. STAFF apenas escolhe o entregador no pedido (`GET /api/entregadores` sem PIX/CPF).

@@ -21,7 +21,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       courier: { select: { id: true, name: true } },
       customer: { omit: { passwordHash: true }, include: { children: true, loyaltyCard: true } },
       address: { include: { deliveryZone: true } },
-      items: true,
+      items: { include: { components: true } },
       payment: true,
       fiscalDocs: true,
     },
@@ -117,6 +117,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               <div key={item.id} className="flex justify-between items-center px-6 py-3">
                 <div>
                   <p className="text-sm font-medium text-zinc-900">{item.name}</p>
+                  {item.components.length > 0 && <p className="text-xs text-zinc-500">{item.components.map((c) => `${c.quantity}× ${c.name}`).join(" · ")}</p>}
                   {item.notes && <p className="text-xs text-zinc-400 italic">{item.notes}</p>}
                 </div>
                 <div className="text-right ml-4 shrink-0">

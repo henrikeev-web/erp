@@ -3,6 +3,8 @@ import { prisma } from "./prisma";
 import { createPaymentLink } from "./infinitepay";
 import { emitAdminEvent } from "./sse";
 import { addDaysUTC, todayUTC } from "./financeiro";
+import { validatePicks } from "./combo";
+import type { ComboOption, ComboPick } from "./combo";
 
 /**
  * Criação de pedido — ponto único usado pelo checkout público, WhatsApp e (futuramente)
@@ -29,7 +31,8 @@ export interface CreateOrderInput {
   scheduledTo?: Date;
   paymentMethod: string;
   changeAmount?: number;
-  items: { productId: string; quantity: number; notes?: string }[];
+  /** Combo: `combo` traz o que o cliente escolheu (por unidade do combo); a soma precisa ser exatamente o tamanho do combo. */
+  items: { productId: string; quantity: number; notes?: string; combo?: ComboPick[] }[];
   source: OrderSource;
 
   /**
@@ -72,10 +75,15 @@ export async function createOrder(input: CreateOrderInput) {
   const { unit } = input;
   if (input.items.length === 0) throw new OrderError("Pedido sem itens");
 
-  // Mesmo produto repetido vira uma linha só (o estoque é conferido pelo total)
+  // Produto simples repetido vira uma linha só. Combo NÃO funde: cada combo é uma linha própria, com a sua escolha.
   const qtyByProduct = new Map<string, number>();
   const notesByProduct = new Map<string, string | undefined>();
+  const comboLines: { productId: string; quantity: number; notes?: string; picks: ComboPick[] }[] = [];
   for (const it of input.items) {
+    if (it.combo) {
+      comboLines.push({ productId: it.productId, quantity: it.quantity, notes: it.notes, picks: it.combo });
+      continue;
+    }
     qtyByProduct.set(it.productId, (qtyByProduct.get(it.productId) ?? 0) + it.quantity);
     if (it.notes) notesByProduct.set(it.productId, it.notes);
   }
@@ -97,8 +105,12 @@ export async function createOrder(input: CreateOrderInput) {
     }
 
     const products = await tx.product.findMany({
-      where: { id: { in: [...qtyByProduct.keys()] }, unitId: unit.id, active: true },
-      include: { stockItem: true },
+      where: { id: { in: [...new Set([...qtyByProduct.keys(), ...comboLines.map((c) => c.productId)])] }, unitId: unit.id, active: true },
+      include: {
+        stockItem: true,
+        // Composição do combo com o estoque de cada produto (só usada em produtos COMBO)
+        comboItems: { orderBy: { order: "asc" }, include: { product: { include: { stockItem: true } } } },
+      },
     });
     const productMap = new Map<string, any>(products.map((p: any) => [p.id, p]));
 
@@ -115,15 +127,37 @@ export async function createOrder(input: CreateOrderInput) {
 
     // ── Itens e subtotal (preço sempre do servidor) ───────────────────────
     let subtotal = 0;
-    const orderItems = [...qtyByProduct.entries()].map(([productId, quantity]) => {
+    type Line = { productId: string; name: string; price: number; quantity: number; total: number; notes?: string; components?: { productId: string; name: string; quantity: number }[] };
+    const orderItems: Line[] = [...qtyByProduct.entries()].map(([productId, quantity]) => {
       const p = productMap.get(productId);
       if (!p) throw new OrderError("Produto indisponível");
+      if (p.kind === "COMBO") throw new OrderError(`Monte o combo "${p.name}" escolhendo os itens`);
       // Revenda: preço fixo do produto; sem preço de revenda cadastrado, vale o preço normal
       const unitPrice = tier === "RESELLER" ? (p.resalePrice ?? p.price) : p.price;
       const total = Math.round(unitPrice * quantity * 100) / 100;
       subtotal += total;
       return { productId, name: p.name, price: unitPrice, quantity, total, notes: notesByProduct.get(productId) };
     });
+
+    // Combos: preço FIXO do combo (não há preço de revenda para combo); a escolha é validada no servidor
+    for (const c of comboLines) {
+      const p = productMap.get(c.productId);
+      if (!p) throw new OrderError("Combo indisponível");
+      if (p.kind !== "COMBO" || !p.comboSize) throw new OrderError(`"${p.name}" não é um combo`);
+      const options: ComboOption[] = p.comboItems.map((ci: any) => ({
+        productId: ci.productId, name: ci.product.name, maxQty: ci.maxQty,
+        active: ci.product.active && ci.product.unitId === unit.id,
+        stock: ci.product.stockItem ? ci.product.stockItem.quantity : null,
+      }));
+      const v = validatePicks(options, p.comboSize, c.picks);
+      if ("error" in v) throw new OrderError(`${p.name}: ${v.error}`);
+      const total = Math.round(p.price * c.quantity * 100) / 100;
+      subtotal += total;
+      orderItems.push({
+        productId: p.id, name: p.name, price: p.price, quantity: c.quantity, total, notes: c.notes,
+        components: v.picks.map((pk) => ({ productId: pk.productId, name: options.find((o) => o.productId === pk.productId)!.name, quantity: pk.quantity * c.quantity })),
+      });
+    }
     subtotal = Math.round(subtotal * 100) / 100;
 
     // ── Entregador: custo conforme a região, gravado no pedido (não muda se a zona for reajustada) ──
@@ -237,7 +271,12 @@ export async function createOrder(input: CreateOrderInput) {
         deliveryFee,
         discount,
         total,
-        items: { create: orderItems },
+        items: {
+          create: orderItems.map(({ components, ...item }) => ({
+            ...item,
+            ...(components?.length ? { components: { create: components } } : {}),
+          })),
+        },
         payment: {
           create: {
             method: input.paymentMethod,
@@ -248,20 +287,36 @@ export async function createOrder(input: CreateOrderInput) {
           },
         },
       },
-      include: { items: true, payment: true, customer: true, address: true },
+      include: { items: { include: { components: true } }, payment: true, customer: true, address: true },
     });
 
     // ── Estoque: baixa atômica, sem deixar ficar negativo ─────────────────
+    // Soma TUDO que o pedido consome por produto (itens simples + componentes dos combos): o mesmo produto
+    // pode aparecer sozinho e dentro de um ou mais combos, e a checagem é pelo total.
+    const need = new Map<string, { qty: number; name: string; stockId: string | null }>();
+    const addNeed = (productId: string, name: string, qty: number, stockId: string | null) => {
+      const cur = need.get(productId);
+      need.set(productId, { qty: (cur?.qty ?? 0) + qty, name, stockId });
+    };
     for (const item of orderItems) {
-      const stock = productMap.get(item.productId)?.stockItem;
-      if (!stock) continue; // produto sem controle de estoque
+      if (item.components) {
+        for (const comp of item.components) {
+          const cp = productMap.get(item.productId).comboItems.find((ci: any) => ci.productId === comp.productId).product;
+          addNeed(cp.id, cp.name, comp.quantity, cp.stockItem?.id ?? null);
+        }
+      } else {
+        addNeed(item.productId, item.name, item.quantity, productMap.get(item.productId)?.stockItem?.id ?? null);
+      }
+    }
+    for (const [, n] of need) {
+      if (!n.stockId) continue; // produto sem controle de estoque
       const r = await tx.stockItem.updateMany({
-        where: { id: stock.id, quantity: { gte: item.quantity } },
-        data: { quantity: { decrement: item.quantity } },
+        where: { id: n.stockId, quantity: { gte: n.qty } },
+        data: { quantity: { decrement: n.qty } },
       });
-      if (r.count === 0) throw new OrderError(`Estoque insuficiente: ${item.name}`, 409);
+      if (r.count === 0) throw new OrderError(`Estoque insuficiente: ${n.name}`, 409);
       await tx.stockMovement.create({
-        data: { stockItemId: stock.id, type: "OUT", quantity: item.quantity, reason: SOURCE_LABEL[input.source], reference: created.id },
+        data: { stockItemId: n.stockId, type: "OUT", quantity: n.qty, reason: SOURCE_LABEL[input.source], reference: created.id },
       });
     }
 

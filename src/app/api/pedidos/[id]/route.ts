@@ -15,7 +15,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       customer: { omit: { passwordHash: true } },
       address: true,
       deliveryZone: true,
-      items: { include: { product: { include: { images: true } } } },
+      items: { include: { product: { include: { images: true } }, components: true } },
       payment: true,
       fiscalDocs: true,
     },

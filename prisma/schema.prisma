@@ -281,7 +281,7 @@ model Category {
 }
 
 model Product {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   brandId       String
   unitId        String
   categoryId    String?
@@ -304,12 +304,14 @@ model Product {
   packLengthCm  Float?
   packWidthCm   Float?
   packHeightCm  Float?
-  frozen        Boolean  @default(true)
-  active        Boolean  @default(true)
-  featured      Boolean  @default(false)
-  order         Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  kind          ProductKind @default(SIMPLE)
+  comboSize     Int? // combo: quantidade EXATA de itens que o cliente monta
+  frozen        Boolean     @default(true)
+  active        Boolean     @default(true)
+  featured      Boolean     @default(false)
+  order         Int         @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   brand                Brand                 @relation(fields: [brandId], references: [id])
   category             Category?             @relation(fields: [categoryId], references: [id])
@@ -318,6 +320,9 @@ model Product {
   orderItems           OrderItem[]
   thematicMenuProducts ThematicMenuProduct[]
   unit                 Unit?                 @relation(fields: [unitId], references: [id])
+  comboItems           ComboItem[]           @relation("ComboOf")
+  inCombos             ComboItem[]           @relation("ComboComponent")
+  orderComponents      OrderItemComponent[]
 
   @@unique([unitId, sku])
   @@unique([unitId, barcode])
@@ -365,6 +370,11 @@ model ThematicMenuProduct {
   product Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@id([menuId, productId])
+}
+
+enum ProductKind {
+  SIMPLE
+  COMBO // preço fixo, quantidade exata, composto por produtos do cardápio (ver ComboItem)
 }
 
 // ─── PEDIDOS ─────────────────────────────────────────────────────────────────
@@ -431,8 +441,9 @@ model OrderItem {
   total     Float
   notes     String?
 
-  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id])
+  order      Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product    Product              @relation(fields: [productId], references: [id])
+  components OrderItemComponent[]
 }
 
 enum OrderType {
@@ -925,4 +936,38 @@ model Courier {
 
   @@unique([unitId, phone])
   @@index([unitId, active])
+}
+
+// ─── COMBOS PERSONALIZADOS ───────────────────────────────────────────────────
+
+// Produto que compõe um combo. maxQty = limite de unidades DESTE produto por combo (null = sem limite,
+// vale até completar a quantidade do combo).
+model ComboItem {
+  id        String @id @default(cuid())
+  comboId   String
+  productId String
+  maxQty    Int?
+  order     Int    @default(0)
+
+  combo   Product @relation("ComboOf", fields: [comboId], references: [id], onDelete: Cascade)
+  product Product @relation("ComboComponent", fields: [productId], references: [id])
+
+  @@unique([comboId, productId])
+  @@index([comboId])
+}
+
+// O que o cliente escolheu dentro de um combo do pedido (já multiplicado pela quantidade da linha).
+// É por aqui que baixa o estoque dos produtos individuais e que a produção enxerga o que preparar.
+model OrderItemComponent {
+  id          String @id @default(cuid())
+  orderItemId String
+  productId   String
+  name        String
+  quantity    Int
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id])
+
+  @@index([orderItemId])
+  @@index([productId])
 }

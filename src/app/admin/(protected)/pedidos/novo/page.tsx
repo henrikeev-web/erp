@@ -9,11 +9,17 @@ import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import NewCustomerModal from "@/components/admin/NewCustomerModal";
+import ComboBuilder from "@/components/ComboBuilder";
+import type { PublicComboOption } from "@/lib/combo-data";
+import { isComboAvailable } from "@/lib/combo";
+import type { ComboPick } from "@/lib/combo";
 
 interface Customer { id: string; name: string; phone: string; type: string }
 interface Zone { id: string; name: string; fee: number; freeAbove: number | null; minOrder: number }
 interface Address { id: string; label: string; street: string; number: string; neighborhood: string; city: string; deliveryZone: Zone | null }
-interface Product { id: string; name: string; price: number; resalePrice: number | null; stockItem: { quantity: number } | null }
+interface Product { id: string; name: string; price: number; resalePrice: number | null; stockItem: { quantity: number } | null; kind?: string }
+interface ComboDef { id: string; name: string; price: number; comboSize: number; options: PublicComboOption[]; available: boolean }
+interface ComboLine { lineId: string; combo: ComboDef; picks: ComboPick[]; summary: string }
 
 const PAYMENTS = [
   { value: "PIX", label: "PIX" }, { value: "CASH", label: "Dinheiro" },
@@ -46,6 +52,9 @@ export default function NovoPedidoPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [pq, setPq] = useState("");
   const [qty, setQty] = useState<Record<string, number>>({});
+  const [combos, setCombos] = useState<ComboDef[]>([]);
+  const [comboLines, setComboLines] = useState<ComboLine[]>([]);
+  const [building, setBuilding] = useState<ComboDef | null>(null);
 
   // ── desconto / pagamento ──
   const [dType, setDType] = useState<"PERCENT" | "VALUE">("PERCENT");
@@ -63,7 +72,15 @@ export default function NovoPedidoPage() {
   const canInvoice = !!customer && customer.type !== "RETAIL";
 
   useEffect(() => {
-    axios.get("/api/produtos", { params: { includeInactive: true } }).then(({ data }) => setProducts(data.filter((p: Product & { active: boolean }) => p.active)));
+    axios.get("/api/produtos", { params: { includeInactive: true } }).then(({ data }) => setProducts(data.filter((p: Product & { active: boolean }) => p.active && p.kind !== "COMBO")));
+    axios.get("/api/combos").then(({ data }) => setCombos(data.filter((c: { active: boolean }) => c.active).map((c: any) => {
+      const options: PublicComboOption[] = c.comboItems.map((i: any) => {
+        const stock = i.product.stockItem ? i.product.stockItem.quantity : null;
+        return { productId: i.productId, name: i.product.name, maxQty: i.maxQty, stock, soldOut: !i.product.active || (stock !== null && stock <= 0), imageUrl: null };
+      });
+      const available = isComboAvailable(options.map((o) => ({ productId: o.productId, name: o.name, maxQty: o.maxQty, active: !o.soldOut, stock: o.stock })), c.comboSize);
+      return { id: c.id, name: c.name, price: c.price, comboSize: c.comboSize, options, available };
+    })));
     axios.get("/api/zonas-entrega").then(({ data }) => setZones(data));
     axios.get("/api/entregadores").then(({ data }) => setCouriers(data));
   }, []);
@@ -83,7 +100,8 @@ export default function NovoPedidoPage() {
   // ── cálculo (espelha o servidor; o servidor é quem vale) ──
   const unitPrice = (p: Product) => (isReseller ? p.resalePrice ?? p.price : p.price);
   const lines = useMemo(() => products.filter((p) => qty[p.id] > 0).map((p) => ({ p, n: qty[p.id], unit: isReseller ? p.resalePrice ?? p.price : p.price })), [products, qty, isReseller]);
-  const subtotal = r2(lines.reduce((s, l) => s + l.unit * l.n, 0));
+  // Combo tem preço fixo (não há revenda para combo)
+  const subtotal = r2(lines.reduce((s, l) => s + l.unit * l.n, 0) + comboLines.reduce((s, c) => s + c.combo.price, 0));
 
   const selectedAddr = addresses.find((a) => a.id === addressId);
   const zone = type === "DELIVERY" ? (selectedAddr?.deliveryZone ?? zones.find((z) => z.id === zoneId) ?? null) : null;
@@ -105,7 +123,7 @@ export default function NovoPedidoPage() {
   async function submit() {
     setError("");
     if (!customer) return setError("Selecione ou cadastre o cliente");
-    if (lines.length === 0) return setError("Adicione ao menos um item");
+    if (lines.length === 0 && comboLines.length === 0) return setError("Adicione ao menos um item");
     if (!dValid) return setError(dType === "PERCENT" ? "Desconto deve ficar entre 0 e 100%" : "Desconto maior que o valor do pedido");
     if (type === "DELIVERY" && addressId === "new" && (!addr.cep || !addr.street || !addr.number || !addr.neighborhood || !addr.city)) return setError("Preencha o endereço de entrega");
     if (type === "DELIVERY" && !zone) return setError("Selecione a zona de entrega");
@@ -130,7 +148,7 @@ export default function NovoPedidoPage() {
         markPaid: method !== "INVOICE" ? markPaid : undefined,
         discount: dAmount ? { type: dType, amount: dn, note: dNote || undefined } : undefined,
         notes: notes || undefined,
-        items: lines.map((l) => ({ productId: l.p.id, quantity: l.n })),
+        items: [...lines.map((l) => ({ productId: l.p.id, quantity: l.n })), ...comboLines.map((c) => ({ productId: c.combo.id, quantity: 1, combo: c.picks }))],
       });
       router.push(`/admin/pedidos/${order.id}`);
     } catch (e) {
@@ -235,6 +253,15 @@ export default function NovoPedidoPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
               <Input value={pq} onChange={(e) => setPq(e.target.value)} placeholder="Buscar produto…" className="pl-9" />
             </div>
+            {combos.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {combos.map((c) => (
+                  <button key={c.id} onClick={() => c.available && setBuilding(c)} disabled={!c.available} className={`px-3 py-2 rounded-xl border text-sm text-left ${c.available ? "border-orange-300 bg-orange-50 hover:bg-orange-100" : "border-zinc-200 bg-zinc-50 text-zinc-400 cursor-not-allowed"}`}>
+                    🍱 <strong>{c.name}</strong> · {c.comboSize} itens · {formatCurrency(c.price)}{!c.available && " · sem estoque"}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="max-h-72 overflow-y-auto divide-y divide-zinc-50 border border-zinc-100 rounded-xl">
               {filteredProducts.map((p) => {
                 const stock = p.stockItem?.quantity;
@@ -285,8 +312,14 @@ export default function NovoPedidoPage() {
         <aside className="lg:sticky lg:top-6 self-start space-y-4">
           <section className="bg-white rounded-2xl border border-zinc-100 p-5 space-y-3">
             <h2 className="font-semibold text-zinc-900">Resumo</h2>
-            {lines.length === 0 ? <p className="text-sm text-zinc-400">Nenhum item</p> : (
+            {lines.length === 0 && comboLines.length === 0 ? <p className="text-sm text-zinc-400">Nenhum item</p> : (
               <div className="space-y-1.5">
+                {comboLines.map((c) => (
+                  <div key={c.lineId} className="text-sm">
+                    <div className="flex items-center justify-between gap-2"><span className="truncate">1× {c.combo.name}</span><span className="flex items-center gap-2 shrink-0">{formatCurrency(c.combo.price)}<button onClick={() => setComboLines((ls) => ls.filter((x) => x.lineId !== c.lineId))} aria-label="Remover combo"><Trash2 className="w-3.5 h-3.5 text-zinc-300 hover:text-red-500" /></button></span></div>
+                    <p className="text-[11px] text-zinc-400">{c.summary}</p>
+                  </div>
+                ))}
                 {lines.map((l) => (
                   <div key={l.p.id} className="flex items-center justify-between text-sm gap-2">
                     <span className="truncate">{l.n}× {l.p.name}</span>
@@ -321,6 +354,19 @@ export default function NovoPedidoPage() {
           </section>
         </aside>
       </div>
+
+      {building && (
+        <ComboBuilder
+          name={building.name} size={building.comboSize} price={building.price} options={building.options}
+          confirmLabel="Adicionar ao pedido"
+          onClose={() => setBuilding(null)}
+          onConfirm={(picks) => {
+            const summary = picks.map((pk) => `${pk.quantity}× ${building.options.find((o) => o.productId === pk.productId)?.name ?? ""}`).join(" · ");
+            setComboLines((ls) => [...ls, { lineId: `${building.id}:${Date.now()}`, combo: building, picks, summary }]);
+            setBuilding(null);
+          }}
+        />
+      )}
 
       {newCustomer && <NewCustomerModal onClose={() => setNewCustomer(false)} onCreated={(c) => { setNewCustomer(false); pickCustomer(c); }} />}
     </div>
