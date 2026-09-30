@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import ResellerAccessCard from "@/components/admin/ResellerAccessCard";
 
 const TIER_LABELS: Record<string, string> = {
   BRONZE: "Bronze", SILVER: "Prata", GOLD: "Ouro", PLATINUM: "Platina",
@@ -34,7 +35,7 @@ interface OrderItem { name: string; quantity: number }
 interface Order { id: string; number: number; status: string; total: number; createdAt: string; items: OrderItem[] }
 
 interface Customer {
-  id: string; name: string; phone: string; email: string | null; cpf: string | null;
+  id: string; name: string; phone: string; email: string | null; cpf: string | null; type: string;
   active: boolean; notes: string | null; createdAt: string; lastOrderAt: string | null;
   children: Child[];
   addresses: Address[];
@@ -120,6 +121,7 @@ export default function CustomerProfilePage() {
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-2xl font-bold text-zinc-900">{customer.name}</h1>
                 {!customer.active && <Badge variant="destructive">Inativo</Badge>}
+                {customer.type === "RESELLER" && <span className="text-xs px-2 py-1 rounded-full font-semibold bg-amber-100 text-amber-800">Revendedor</span>}
                 {customer.loyaltyCard && (
                   <span className={`text-xs px-2 py-1 rounded-full font-medium ${TIER_COLORS[customer.loyaltyCard.tier]}`}>
                     <Star className="w-3 h-3 inline mr-1" />
@@ -157,6 +159,8 @@ export default function CustomerProfilePage() {
           </div>
         ))}
       </div>
+
+      <ResellerAccessCard customerId={customer.id} type={customer.type} onChanged={load} />
 
       <div className="grid md:grid-cols-2 gap-4">
         {/* Contato */}

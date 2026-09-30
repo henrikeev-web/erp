@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUnit } from "@/lib/unit";
-import { PUBLIC_PRODUCT_OMIT } from "@/lib/product-fields";
+import { applyTierPricing, getSessionPricing, productOmitFor } from "@/lib/pricing";
 import MenuClient from "@/components/storefront/MenuClient";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +10,9 @@ async function getMenuData() {
   if (!unit) return null;
   const brand = await prisma.brand.findUnique({ where: { id: unit.brandId } });
   if (!brand) return null;
+  // Nível de preço da sessão (revendedor logado ou varejo). O preço de revenda só entra na consulta se for revendedor.
+  const { tier } = await getSessionPricing(unit.id);
+  const omit = productOmitFor(tier);
 
   const [categories, products, thematicMenus, bannerSlides] = await Promise.all([
     prisma.category.findMany({
@@ -18,7 +21,7 @@ async function getMenuData() {
     }),
     prisma.product.findMany({
       where: { unitId: unit.id, active: true },
-      omit: PUBLIC_PRODUCT_OMIT, // o produto inteiro vai serializado para o navegador
+      omit, // o produto inteiro vai serializado para o navegador
       include: {
         images: { orderBy: { order: "asc" } },
         category: true,
@@ -39,7 +42,7 @@ async function getMenuData() {
         products: {
           include: {
             product: {
-              omit: PUBLIC_PRODUCT_OMIT,
+              omit,
               include: { images: { orderBy: { order: "asc" } }, stockItem: true },
             },
           },
@@ -53,7 +56,16 @@ async function getMenuData() {
     }),
   ]);
 
-  return { brand, categories, products, thematicMenus, bannerSlides };
+  // Converte para o preço do nível e REMOVE resalePrice antes de serializar para o navegador
+  return {
+    brand, categories, bannerSlides,
+    pricingTier: tier,
+    products: products.map((p: any) => applyTierPricing(p, tier)),
+    thematicMenus: thematicMenus.map((m: any) => ({
+      ...m,
+      products: m.products.map((tp: any) => ({ ...tp, product: applyTierPricing(tp.product, tier) })),
+    })),
+  };
 }
 
 export default async function CardapioPage() {

@@ -12,7 +12,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const order = await prisma.order.findFirst({
     where: { id, unitId: auth.unit.id },
     include: {
-      customer: true,
+      customer: { omit: { passwordHash: true } },
       address: true,
       deliveryZone: true,
       items: { include: { product: { include: { images: true } } } },
@@ -53,11 +53,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       },
     });
 
-    if (status === "DELIVERED" && order.payment) {
+    // Faturado NÃO vira pago ao entregar: quem baixa é a conta a receber (financeiro)
+    if (status === "DELIVERED" && order.payment && order.payment.method !== "INVOICE") {
       await prisma.payment.update({
         where: { orderId: id },
         data: { status: "PAID", paidAt: new Date() },
       });
+    }
+
+    // Pedido cancelado: a conta a receber em aberto do faturamento também é cancelada
+    if (status === "CANCELLED") {
+      await prisma.financialEntry.updateMany({ where: { orderId: id, unitId: auth.unit.id, status: "OPEN" }, data: { status: "CANCELLED" } });
     }
 
     // Emit SSE for auto-print on CONFIRMED

@@ -89,6 +89,22 @@ Variáveis: `BASE_DOMAIN`, `AUTH_HOST`, `COOKIE_DOMAIN` (prod, `.banguelas.com.b
 
 ---
 
+## Revendedores, preço de revenda e pedido manual
+
+**REGRA DE SIGILO (inegociável): o preço de revenda (`Product.resalePrice`) só pode chegar ao navegador de um REVENDEDOR cadastrado e logado. Nunca a outro cliente, visitante, WhatsApp ou API pública.**
+
+- **Quem é revendedor**: `Customer.type = RESELLER`. **Só ADMIN cadastra** (`POST /api/clientes` com `type`) ou muda o tipo (`PUT`), e só ADMIN define/redefine a senha (`POST /api/clientes/[id]/senha`; a senha provisória é mostrada UMA vez). O revendedor **não se cadastra sozinho**: `register`, Google (`completar`) e checkout de visitante recusam qualquer conta que não seja `RETAIL` (mesma mensagem de "conta existente", para não revelar quem é revendedor).
+- **Nível de preço é decidido no servidor** por `getSessionPricing()` (`src/lib/pricing.ts`): sessão de cliente da unidade + `Customer.type` lido **do banco a cada request** (revogar vale na hora). Nunca de body, query, cookie ou header.
+- **Como o preço sai**: `resalePrice` está em `INTERNAL_PRODUCT_FIELDS` → **toda consulta pública de produto usa `omit: productOmitFor(tier)`** e passa por `applyTierPricing()`, que converte para `price` (revenda, ou o normal se o produto não tiver) e **remove** `resalePrice`/`priceOriginal`. Vale para `/api/produtos`, `/cardapio` (props serializadas no HTML), cardápio temático. WhatsApp é sempre varejo. Ao criar nova consulta pública de `Product`, incluir o omit.
+- **Cobrança**: `createOrder({ pricing })` — o storefront passa o nível da sessão; `BY_CUSTOMER` só no painel (pedido manual segue o tipo do cliente escolhido); `RESELLER` exige cliente `RESELLER`. Revenda: sem cupom, sem pontos de fidelidade.
+- **Faturado** (`paymentMethod: "INVOICE"`, só cliente não-varejo): prazo escolhido **por pedido**, contado da data do pedido. Loja: `RESELLER_INVOICE_DAYS` (7/14/21/28, `src/lib/invoice-terms.ts`); pedido manual: 1–120. Gera `FinancialEntry` RECEIVABLE (`source: ORDER`, `sourceKey: order:<id>`). Entregar **não** marca como pago; baixar a conta a receber atualiza o `Payment`; cancelar o pedido cancela a conta a receber. Total 0 (100% de desconto) não gera conta e nasce quitado.
+- **Pedido manual** (`/admin/pedidos/novo`, `POST /api/pedidos`, qualquer staff): cliente existente ou novo, desconto em % (≤ 100) ou valor sobre o **pedido inteiro (itens + frete)** — não acumula com cupom —, já **entra em produção** (`initialStatus`), `createdBy` e `discountNote` gravados, opção "já recebido".
+- **Carrinho** (localStorage): `syncPrices` realinha os preços a cada carga do cardápio e o carrinho é limpo ao sair — preços de revenda não ficam no navegador do próximo usuário. O servidor sempre recalcula.
+- `passwordHash` nunca vai em respostas (`omit`).
+- Testes que valem repetir ao mexer aqui: varrer `/api/produtos`, `/cardapio`, `/api/whatsapp/cardapio`, `/minha-conta/*` como visitante e cliente comum (com headers/cookies forjados) procurando o valor e `resalePrice`.
+
+---
+
 ## Financeiro (contas a pagar / a receber)
 
 Tela `/admin/financeiro` (abas: Resumo, A pagar, A receber, Recorrentes, Fornecedores, Centros de custo). **Só ADMIN/SUPER_ADMIN** (`requireStaff(["SUPER_ADMIN","ADMIN"])` nas APIs e guarda no servidor na página); STAFF não vê. Tudo por unidade.

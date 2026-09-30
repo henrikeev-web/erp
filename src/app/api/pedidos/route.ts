@@ -14,9 +14,17 @@ const createOrderSchema = z.object({
   scheduledTo: z.string().datetime().optional(),
   paymentMethod: z.enum([
     "CASH", "PIX", "CREDIT_CARD", "DEBIT_CARD",
-    "VOUCHER", "ONLINE_CREDIT", "ONLINE_PIX", "ONLINE_BOLETO",
+    "VOUCHER", "ONLINE_CREDIT", "ONLINE_PIX", "ONLINE_BOLETO", "INVOICE",
   ]),
   changeAmount: z.number().optional(),
+  invoiceDays: z.number().int().min(1, "Prazo mínimo: 1 dia").max(120, "Prazo máximo: 120 dias").optional(),
+  // Desconto do operador sobre o pedido inteiro (itens + frete)
+  discount: z.object({
+    type: z.enum(["PERCENT", "VALUE"]),
+    amount: z.number().positive("Desconto deve ser maior que zero"),
+    note: z.string().max(200).optional(),
+  }).optional(),
+  markPaid: z.boolean().optional(),
   items: z.array(z.object({
     productId: z.string(),
     quantity: z.number().int().min(1),
@@ -67,7 +75,9 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ orders, total, page, limit });
 }
 
-// Criação pelo painel. O checkout público usa POST /api/checkout.
+// Pedido manual do painel: o operador escolhe o cliente (ou cadastra na hora), pode dar desconto de qualquer valor
+// (até 100% do pedido) e o pedido já ENTRA EM PRODUÇÃO. O preço acompanha o tipo do cliente (revendedor = revenda).
+// O checkout público usa POST /api/checkout.
 export async function POST(req: NextRequest) {
   const auth = await requireStaff();
   if (auth instanceof NextResponse) return auth;
@@ -77,8 +87,12 @@ export async function POST(req: NextRequest) {
     const order = await createOrder({
       unit: auth.unit,
       ...data,
+      manualDiscount: data.discount,
       scheduledTo: data.scheduledTo ? new Date(data.scheduledTo) : undefined,
       source: "ADMIN",
+      pricing: "BY_CUSTOMER",
+      initialStatus: "IN_PRODUCTION",
+      createdBy: auth.userId,
     });
     return NextResponse.json(order, { status: 201 });
   } catch (error) {

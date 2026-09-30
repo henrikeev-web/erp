@@ -15,7 +15,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const order = await prisma.order.findFirst({
     where: { id, unitId: auth.unit.id },
     include: {
-      customer: true,
+      customer: { omit: { passwordHash: true } },
       address: { include: { deliveryZone: true } },
       items: true,
       payment: true,

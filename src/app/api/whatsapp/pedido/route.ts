@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
       paymentMethod: data.paymentMethod,
       items: data.items,
       source: "WHATSAPP",
+      pricing: "RETAIL", // o bot nunca aplica preço de revenda
     });
 
     return NextResponse.json(

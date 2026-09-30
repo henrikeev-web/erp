@@ -151,10 +151,21 @@ enum UserRole {
   ENTREGADOR
 }
 
+enum CustomerType {
+  RETAIL // consumidor final
+  RESELLER // ponto de venda / revendedor — cadastrado SOMENTE pelo admin; único que enxerga preço de revenda
+  FRANCHISEE // franqueado (fase de franquias)
+}
+
+enum OrderPriceTier {
+  RETAIL
+  RESELLER
+}
+
 // ─── CLIENTES ────────────────────────────────────────────────────────────────
 
 model Customer {
-  id           String    @id @default(cuid())
+  id           String       @id @default(cuid())
   brandId      String
   unitId       String
   name         String
@@ -163,10 +174,11 @@ model Customer {
   cpf          String?
   passwordHash String?
   googleId     String?
-  active       Boolean   @default(true)
+  active       Boolean      @default(true)
+  type         CustomerType @default(RETAIL)
   notes        String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
   lastOrderAt  DateTime?
 
   // Preferências de notificação
@@ -189,6 +201,7 @@ model Customer {
   @@unique([unitId, cpf])
   @@unique([unitId, googleId])
   @@index([unitId])
+  @@index([unitId, type])
 }
 
 model Child {
@@ -282,6 +295,7 @@ model Product {
   ingredients   String?
   allergens     String?
   // Dados internos (logística/fiscal) — nunca expostos no cardápio público
+  resalePrice   Float? // preço de revenda (fixo, igual p/ todos os revendedores) — NUNCA público
   barcode       String?
   ncm           String?
   packWeightG   Int? // peso da embalagem, em gramas
@@ -354,19 +368,23 @@ model ThematicMenuProduct {
 // ─── PEDIDOS ─────────────────────────────────────────────────────────────────
 
 model Order {
-  id             String      @id @default(cuid())
+  id             String         @id @default(cuid())
   number         Int
   brandId        String
   unitId         String
   customerId     String
   addressId      String?
   deliveryZoneId String?
-  type           OrderType   @default(DELIVERY)
-  status         OrderStatus @default(PENDING)
+  type           OrderType      @default(DELIVERY)
+  status         OrderStatus    @default(PENDING)
   notes          String?
   subtotal       Float
-  deliveryFee    Float       @default(0)
-  discount       Float       @default(0)
+  deliveryFee    Float          @default(0)
+  discount       Float          @default(0)
+  discountNote   String?
+  priceTier      OrderPriceTier @default(RETAIL)
+  invoiceDays    Int?
+  createdBy      String?
   total          Float
   couponId       String?
   couponCode     String?
@@ -378,8 +396,8 @@ model Order {
   deliveredAt    DateTime?
   cancelledAt    DateTime?
   cancelReason   String?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   brand        Brand               @relation(fields: [brandId], references: [id])
   customer     Customer            @relation(fields: [customerId], references: [id])
@@ -454,6 +472,7 @@ enum PaymentMethod {
   ONLINE_CREDIT
   ONLINE_PIX
   ONLINE_BOLETO
+  INVOICE // faturado: paga depois, no prazo escolhido no pedido (gera conta a receber)
 }
 
 enum PaymentStatus {

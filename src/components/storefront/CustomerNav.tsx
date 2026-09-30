@@ -1,6 +1,7 @@
 "use client";
 
 import { signOut } from "next-auth/react";
+import { useCart } from "@/store/cart";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { User, MapPin, Baby, ShoppingBag, Star, Bell, LogOut } from "lucide-react";
@@ -36,7 +37,7 @@ export default function CustomerNav({ user }: Props) {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 13, color: "#78716c" }}>Olá, {user.name?.split(" ")[0]}</span>
             <button
-              onClick={() => signOut({ callbackUrl: "/cardapio" })}
+              onClick={() => { useCart.getState().clear(); signOut({ callbackUrl: "/cardapio" }); }}
               style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, color: "#a8a29e", background: "none", border: "none", cursor: "pointer", padding: "4px 8px", borderRadius: 6 }}
             >
               <LogOut size={14} />

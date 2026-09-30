@@ -32,7 +32,9 @@ export async function POST(req: Request) {
     });
 
     if (existing) {
-      if (existing.passwordHash) {
+      // Revendedor/franqueado é cadastrado só pelo admin: o autocadastro jamais assume essa conta
+      // (mesma resposta de "conta existente" para não revelar que o telefone é de um revendedor)
+      if (existing.passwordHash || existing.type !== "RETAIL") {
         return NextResponse.json({ error: "Conta já cadastrada. Use a opção de entrar." }, { status: 409 });
       }
       // Customer exists from anonymous checkout — activate account

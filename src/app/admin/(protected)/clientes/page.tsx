@@ -10,10 +10,11 @@ import { formatCurrency, ageLabel } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import NewCustomerModal from "@/components/admin/NewCustomerModal";
 
 interface Customer {
   id: string; name: string; phone: string; email: string | null;
-  active: boolean; createdAt: string; lastOrderAt: string | null;
+  active: boolean; createdAt: string; lastOrderAt: string | null; type: string;
   children: { id: string; name: string; birthDate: string }[];
   loyaltyCard: { points: number; tier: string } | null;
   _count: { orders: number };
@@ -24,7 +25,8 @@ export default function ClientesPage() {
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | "active" | "inactive">("all");
+  const [filter, setFilter] = useState<"all" | "active" | "inactive" | "resellers">("all");
+  const [newOpen, setNewOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -32,6 +34,7 @@ export default function ClientesPage() {
       const params = new URLSearchParams();
       if (search) params.set("q", search);
       if (filter === "inactive") params.set("inativo", "true");
+      if (filter === "resellers") params.set("tipo", "RESELLER");
       params.set("limit", "50");
       const { data } = await axios.get(`/api/clientes?${params}`);
       setCustomers(data.customers);
@@ -57,7 +60,7 @@ export default function ClientesPage() {
           <h1 className="text-2xl font-bold text-zinc-900">Clientes</h1>
           <p className="text-zinc-500 text-sm">{total} cliente{total !== 1 ? "s" : ""}</p>
         </div>
-        <Button className="bg-orange-500 hover:bg-orange-600">
+        <Button className="bg-orange-500 hover:bg-orange-600" onClick={() => setNewOpen(true)}>
           <UserPlus className="w-4 h-4 mr-2" /> Novo cliente
         </Button>
       </div>
@@ -73,6 +76,7 @@ export default function ClientesPage() {
             { value: "all", label: "Todos" },
             { value: "active", label: "Ativos" },
             { value: "inactive", label: "Inativos +30d" },
+            { value: "resellers", label: "Revendedores" },
           ].map((f) => (
             <button key={f.value} onClick={() => setFilter(f.value as typeof filter)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${filter === f.value ? "bg-white shadow-sm text-zinc-900" : "text-zinc-500"}`}>
@@ -102,6 +106,7 @@ export default function ClientesPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-semibold text-zinc-900">{c.name}</p>
                     {!c.active && <Badge variant="destructive" className="text-xs">Inativo</Badge>}
+                    {c.type === "RESELLER" && <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-800">Revendedor</span>}
                     {c.loyaltyCard && (
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${tierColor[c.loyaltyCard.tier] ?? "bg-zinc-100"}`}>
                         <Star className="w-3 h-3 inline mr-0.5" />{c.loyaltyCard.points}pts
@@ -134,6 +139,7 @@ export default function ClientesPage() {
           </div>
         )}
       </div>
+      {newOpen && <NewCustomerModal onClose={() => setNewOpen(false)} onCreated={() => { setNewOpen(false); load(); }} />}
     </div>
   );
 }

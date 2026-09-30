@@ -23,6 +23,8 @@ interface MenuClientProps {
     bannerBgColor: string | null; bannerBadges: string[];
   };
   bannerSlides: BannerSlide[];
+  /** Nível de preço desta sessão, decidido no servidor. RESELLER = revendedor cadastrado e logado. */
+  pricingTier?: "RETAIL" | "RESELLER";
   categories: { id: string; name: string; slug: string; ageMin: number | null; ageMax: number | null }[];
   products: {
     id: string; name: string; description: string | null; price: number; priceOriginal: number | null;
@@ -78,7 +80,7 @@ function CheckIcon({ color = "#62C1B1" }: { color?: string }) {
   );
 }
 
-export default function MenuClient({ brand, bannerSlides, categories, products }: MenuClientProps) {
+export default function MenuClient({ brand, bannerSlides, categories, products, pricingTier = "RETAIL" }: MenuClientProps) {
   const [search, setSearch] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<typeof products[0] | null>(null);
   const [selectedQty, setSelectedQty] = useState(1);
@@ -99,7 +101,12 @@ export default function MenuClient({ brand, bannerSlides, categories, products }
     return () => clearInterval(t);
   }, [activeSlides.length, slidePaused]);
 
-  const { items, add, remove, updateQty, itemCount, subtotal } = useCart();
+  const { items, add, remove, updateQty, itemCount, subtotal, syncPrices } = useCart();
+
+  // Carrinho guardado no navegador pode ter preços de outra conta: alinha com o que o servidor enviou agora
+  useEffect(() => {
+    syncPrices(Object.fromEntries(products.map((p) => [p.id, p.price])));
+  }, [products, syncPrices]);
 
   const productColorMap = useMemo(() => {
     const map = new Map<string, { color: string; tint: string }>();
@@ -209,6 +216,12 @@ export default function MenuClient({ brand, bannerSlides, categories, products }
       `}</style>
 
       <div style={{ minHeight: "100vh", fontFamily: "'Poppins',sans-serif", color: "#4A3526" }}>
+
+        {pricingTier === "RESELLER" && (
+          <div style={{ background: "#4A3526", color: "#FAD200", textAlign: "center", fontSize: 13, fontWeight: 600, padding: "7px 12px" }}>
+            Você está vendo os preços de revenda
+          </div>
+        )}
 
         {/* ── HEADER ── */}
         <header style={{ position: "sticky", top: 0, zIndex: 40, background: "rgba(251,246,236,.92)", backdropFilter: "blur(12px)", borderBottom: "2px solid #F0E7D6" }}>
@@ -590,7 +603,7 @@ export default function MenuClient({ brand, bannerSlides, categories, products }
           deliveryFee={deliveryFee}
           showFreeHint={showFreeHint}
         />
-        <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} brandId={brand.id} />
+        <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} brandId={brand.id} isReseller={pricingTier === "RESELLER"} />
       </div>
     </>
   );

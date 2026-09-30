@@ -2,6 +2,7 @@
 import { prisma } from "./prisma";
 import { createPaymentLink } from "./infinitepay";
 import { emitAdminEvent } from "./sse";
+import { addDaysUTC, todayUTC } from "./financeiro";
 
 /**
  * Criação de pedido — ponto único usado pelo checkout público, WhatsApp e (futuramente)
@@ -30,6 +31,21 @@ export interface CreateOrderInput {
   changeAmount?: number;
   items: { productId: string; quantity: number; notes?: string }[];
   source: OrderSource;
+
+  /**
+   * Nível de preço. O storefront passa o nível da SESSÃO; o WhatsApp sempre RETAIL. BY_CUSTOMER só p/ fluxos
+   * do painel (o operador escolhe o cliente e o preço acompanha o tipo dele). RESELLER exige cliente revendedor.
+   */
+  pricing?: "RETAIL" | "RESELLER" | "BY_CUSTOMER";
+  /** Faturado (paymentMethod INVOICE): prazo em dias, contado da data do pedido. */
+  invoiceDays?: number;
+  /** Desconto do operador sobre o pedido INTEIRO (itens + frete). PERCENT: 0 < x ≤ 100. VALUE: ≤ total. */
+  manualDiscount?: { type: "PERCENT" | "VALUE"; amount: number; note?: string };
+  /** Pedido manual já entra em produção. */
+  initialStatus?: "PENDING" | "CONFIRMED" | "IN_PRODUCTION";
+  /** Marca o pagamento como recebido na criação (balcão). Ignorado em INVOICE. */
+  markPaid?: boolean;
+  createdBy?: string;
 }
 
 const PAY_ON_DELIVERY = ["CASH", "PIX", "CREDIT_CARD", "DEBIT_CARD", "VOUCHER"];
@@ -84,15 +100,29 @@ export async function createOrder(input: CreateOrderInput) {
     });
     const productMap = new Map<string, any>(products.map((p: any) => [p.id, p]));
 
+    // ── Nível de preço (decidido no servidor; ver src/lib/pricing.ts) ─────
+    const requested = input.pricing ?? "RETAIL";
+    const tier: "RETAIL" | "RESELLER" = requested === "BY_CUSTOMER" ? (customer.type === "RESELLER" ? "RESELLER" : "RETAIL") : requested;
+    if (tier === "RESELLER" && customer.type !== "RESELLER") throw new OrderError("Preço de revenda indisponível", 403);
+    if (tier === "RESELLER" && input.couponCode) throw new OrderError("Cupom não se aplica a pedidos de revenda");
+    if (input.paymentMethod === "INVOICE" && customer.type === "RETAIL") throw new OrderError("Faturamento indisponível para este cliente", 403);
+    const invoiceDays = input.paymentMethod === "INVOICE" ? input.invoiceDays : undefined;
+    if (input.paymentMethod === "INVOICE" && !(Number.isInteger(invoiceDays) && invoiceDays! >= 1 && invoiceDays! <= 120)) {
+      throw new OrderError("Informe o prazo do faturamento (1 a 120 dias)");
+    }
+
     // ── Itens e subtotal (preço sempre do servidor) ───────────────────────
     let subtotal = 0;
     const orderItems = [...qtyByProduct.entries()].map(([productId, quantity]) => {
       const p = productMap.get(productId);
       if (!p) throw new OrderError("Produto indisponível");
-      const total = p.price * quantity;
+      // Revenda: preço fixo do produto; sem preço de revenda cadastrado, vale o preço normal
+      const unitPrice = tier === "RESELLER" ? (p.resalePrice ?? p.price) : p.price;
+      const total = Math.round(unitPrice * quantity * 100) / 100;
       subtotal += total;
-      return { productId, name: p.name, price: p.price, quantity, total, notes: notesByProduct.get(productId) };
+      return { productId, name: p.name, price: unitPrice, quantity, total, notes: notesByProduct.get(productId) };
     });
+    subtotal = Math.round(subtotal * 100) / 100;
 
     // ── Frete ─────────────────────────────────────────────────────────────
     let deliveryFee = 0;
@@ -136,7 +166,27 @@ export async function createOrder(input: CreateOrderInput) {
       couponId = coupon.id;
     }
 
-    const total = Math.max(0, subtotal - discount + deliveryFee);
+    // ── Desconto do operador: sobre o pedido inteiro (itens + frete); não acumula com cupom ──
+    let discountNote: string | undefined;
+    if (input.manualDiscount) {
+      if (couponId) throw new OrderError("Desconto manual não acumula com cupom");
+      const base = Math.round((subtotal + deliveryFee) * 100) / 100;
+      const { type, amount } = input.manualDiscount;
+      if (!(amount > 0)) throw new OrderError("Desconto deve ser maior que zero");
+      if (type === "PERCENT") {
+        if (amount > 100) throw new OrderError("Desconto máximo: 100%");
+        discount = Math.round(base * amount) / 100;
+      } else {
+        if (amount > base) throw new OrderError("Desconto maior que o valor do pedido");
+        discount = Math.round(amount * 100) / 100;
+      }
+      discountNote = input.manualDiscount.note?.trim().slice(0, 200) || (type === "PERCENT" ? `${amount}%` : undefined);
+    }
+
+    const total = Math.max(0, Math.round((subtotal - discount + deliveryFee) * 100) / 100);
+    const payNow = input.paymentMethod !== "INVOICE" && !!input.markPaid;
+    // Total zero (100% de desconto) não tem o que cobrar: o pagamento já nasce quitado e o faturado não gera conta a receber
+    const paidAlready = payNow || total === 0;
 
     // ── Número sequencial por unidade ─────────────────────────────────────
     // Lock consultivo (liberado no fim da transação): pedidos da mesma unidade passam a alocar o
@@ -154,6 +204,12 @@ export async function createOrder(input: CreateOrderInput) {
         addressId: input.addressId,
         deliveryZoneId: zone?.id,
         type: input.type ?? "DELIVERY",
+        status: input.initialStatus ?? "PENDING",
+        ...(input.initialStatus && input.initialStatus !== "PENDING" ? { confirmedAt: new Date() } : {}),
+        priceTier: tier,
+        invoiceDays,
+        createdBy: input.createdBy,
+        discountNote,
         notes: input.notes,
         couponId,
         couponCode: couponId ? input.couponCode!.toUpperCase().trim() : undefined,
@@ -167,7 +223,8 @@ export async function createOrder(input: CreateOrderInput) {
           create: {
             method: input.paymentMethod,
             amount: total,
-            status: PAY_ON_DELIVERY.includes(input.paymentMethod) ? "PENDING" : "PROCESSING",
+            status: paidAlready ? "PAID" : PAY_ON_DELIVERY.includes(input.paymentMethod) || input.paymentMethod === "INVOICE" ? "PENDING" : "PROCESSING",
+            paidAt: paidAlready ? new Date() : undefined,
             changeAmount: input.changeAmount,
           },
         },
@@ -189,17 +246,30 @@ export async function createOrder(input: CreateOrderInput) {
       });
     }
 
-    // ── Cliente e fidelidade ──────────────────────────────────────────────
+    // ── Cliente e fidelidade (pedidos de revenda não pontuam) ─────────────
     await tx.customer.update({ where: { id: customer.id }, data: { lastOrderAt: new Date() } });
-    const points = Math.floor(total);
-    const card = await tx.loyaltyCard.upsert({
-      where: { customerId: customer.id },
-      create: { customerId: customer.id, points },
-      update: { points: { increment: points } },
-    });
-    await tx.loyaltyTransaction.create({
-      data: { loyaltyCardId: card.id, orderId: created.id, type: "EARN", points, description: `Pedido #${number}` },
-    });
+    if (tier === "RETAIL") {
+      const points = Math.floor(total);
+      const card = await tx.loyaltyCard.upsert({
+        where: { customerId: customer.id },
+        create: { customerId: customer.id, points },
+        update: { points: { increment: points } },
+      });
+      await tx.loyaltyTransaction.create({
+        data: { loyaltyCardId: card.id, orderId: created.id, type: "EARN", points, description: `Pedido #${number}` },
+      });
+    }
+
+    // ── Faturado: vira conta a receber (prazo contado da data do pedido) ──
+    if (input.paymentMethod === "INVOICE" && total > 0) {
+      await tx.financialEntry.create({
+        data: {
+          unitId: unit.id, type: "RECEIVABLE", description: `Pedido #${number} — ${customer.name}`, amount: total,
+          dueDate: addDaysUTC(todayUTC(), invoiceDays!), customerId: customer.id, orderId: created.id,
+          source: "ORDER", sourceKey: `order:${created.id}`, createdBy: input.createdBy,
+        },
+      });
+    }
 
     return { ...created, _items: orderItems };
   }));
@@ -236,7 +306,11 @@ export async function findOrCreateCustomerByPhone(
   if (phone.length < 10) throw new OrderError("Telefone inválido");
 
   const existing = await prisma.customer.findFirst({ where: { unitId: unit.id, phone } });
-  if (existing) return existing;
+  if (existing) {
+    // Conta de revendedor/franqueado não se usa como visitante: exige login (evita preço e conta de terceiros)
+    if (existing.type !== "RETAIL") throw new OrderError("Este telefone está vinculado a uma conta. Entre para continuar.", 409);
+    return existing;
+  }
 
   return (prisma as any).$transaction(async (tx: any) => {
     const customer = await tx.customer.create({

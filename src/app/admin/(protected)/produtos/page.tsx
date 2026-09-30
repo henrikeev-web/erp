@@ -22,6 +22,7 @@ interface Product {
   ageMin: number | null; ageMax: number | null;
   featured: boolean; active: boolean; frozen: boolean;
   categoryId: string | null;
+  resalePrice: number | null;
   barcode: string | null; ncm: string | null; packWeightG: number | null;
   packLengthCm: number | null; packWidthCm: number | null; packHeightCm: number | null;
   images: ProductImage[];
@@ -35,6 +36,7 @@ interface EditForm {
   name: string; description: string; price: string; priceOriginal: string;
   ageMin: string; ageMax: string; categoryId: string;
   featured: boolean; active: boolean; frozen: boolean;
+  resalePrice: string;
   barcode: string; ncm: string; packWeightG: string;
   packLengthCm: string; packWidthCm: string; packHeightCm: string;
 }
@@ -53,6 +55,7 @@ function productToForm(p: Product): EditForm {
     featured: p.featured,
     active: p.active,
     frozen: p.frozen,
+    resalePrice: numStr(p.resalePrice),
     barcode: p.barcode ?? "",
     ncm: p.ncm ?? "",
     packWeightG: numStr(p.packWeightG),
@@ -207,6 +210,7 @@ export default function ProdutosPage() {
         featured: form.featured,
         active: form.active,
         frozen: form.frozen,
+        resalePrice: form.resalePrice,
         barcode: form.barcode,
         ncm: form.ncm,
         packWeightG: form.packWeightG,
@@ -484,6 +488,17 @@ export default function ProdutosPage() {
                   <label className="text-xs font-medium text-zinc-600 mb-1.5 block">Idade máxima (meses)</label>
                   <Input type="number" min="0" value={form.ageMax} onChange={e => setField("ageMax", e.target.value)} placeholder="Ex: 24" />
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                <div>
+                  <p className="text-xs font-semibold text-amber-900">Preço de revenda (R$)</p>
+                  <p className="text-[11px] text-amber-800">Valor fixo para todos os revendedores. Só revendedores cadastrados e logados enxergam — nunca aparece para clientes, no cardápio nem no WhatsApp. Em branco = o revendedor paga o preço normal.</p>
+                </div>
+                <Input type="number" step="0.01" min="0" value={form.resalePrice} onChange={e => setField("resalePrice", e.target.value)} placeholder="Ex: 9,90" />
+                {form.resalePrice && form.price && parseFloat(form.resalePrice) > parseFloat(form.price) && (
+                  <p className="text-[11px] text-red-600">Atenção: o preço de revenda está maior que o preço de venda.</p>
+                )}
               </div>
 
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 space-y-3">

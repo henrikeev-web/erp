@@ -8,6 +8,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const customer = await prisma.customer.findFirst({
     where: { id, unitId: auth.unit.id },
+    omit: { passwordHash: true },
     include: {
       children: true,
       addresses: { include: { deliveryZone: true } },
@@ -30,10 +31,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   try {
     const body = await req.json();
-    const { name, email, cpf, notes, active } = body;
+    const { name, email, cpf, notes, active, type } = body;
+
+    // Tipo de cliente = quem enxerga preço de revenda. Só administrador altera.
+    if (type !== undefined) {
+      if (!["SUPER_ADMIN", "ADMIN"].includes(auth.role)) return NextResponse.json({ error: "Apenas administradores alteram o tipo de cliente" }, { status: 403 });
+      if (!["RETAIL", "RESELLER"].includes(type)) return NextResponse.json({ error: "Tipo inválido" }, { status: 400 });
+    }
+
     const customer = await prisma.customer.update({
       where: { id, unitId: auth.unit.id },
-      data: { name, email, cpf, notes, active },
+      data: { name, email, cpf, notes, active, ...(type !== undefined && { type }) },
+      omit: { passwordHash: true },
       include: { children: true, loyaltyCard: true },
     });
     return NextResponse.json(customer);

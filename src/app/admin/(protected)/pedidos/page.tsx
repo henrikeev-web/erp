@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, RefreshCw, Phone, Printer, Send } from "lucide-react";
+import { Search, RefreshCw, Phone, Printer, Send, Plus } from "lucide-react";
 import Link from "next/link";
 import axios from "axios";
 import { formatCurrency, orderStatusLabel, paymentMethodLabel } from "@/lib/utils";
@@ -44,7 +44,7 @@ interface Payment {
 
 interface Order {
   id: string; number: number; status: string; type: string;
-  total: number; createdAt: string; paymentLinkUrl: string | null;
+  total: number; createdAt: string; paymentLinkUrl: string | null; priceTier?: string; invoiceDays?: number | null;
   customer: { name: string; phone: string };
   payment: Payment | null;
   items: { name: string; quantity: number }[];
@@ -174,9 +174,14 @@ export default function PedidosPage() {
           <h1 className="text-2xl font-bold text-zinc-900">Pedidos</h1>
           <p className="text-zinc-500 text-sm">{total} pedido{total !== 1 ? "s" : ""} encontrado{total !== 1 ? "s" : ""}</p>
         </div>
-        <Button onClick={load} variant="outline" size="icon">
-          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-        </Button>
+        <div className="flex gap-2">
+          <Link href="/admin/pedidos/novo">
+            <Button className="bg-orange-500 hover:bg-orange-600"><Plus className="w-4 h-4 mr-1.5" /> Novo pedido</Button>
+          </Link>
+          <Button onClick={load} variant="outline" size="icon">
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
       </div>
 
       {/* Status tabs */}
@@ -275,7 +280,8 @@ export default function PedidosPage() {
                   </p>
                   <p className="text-xs text-zinc-400 mt-0.5">
                     {format(new Date(order.createdAt), "dd/MM HH:mm", { locale: ptBR })}
-                    {order.payment && ` · ${paymentMethodLabel(order.payment.method)}`}
+                    {order.payment && ` · ${paymentMethodLabel(order.payment.method)}${order.payment.method === "INVOICE" && order.invoiceDays ? ` ${order.invoiceDays}d` : ""}`}
+                    {order.priceTier === "RESELLER" && <span className="ml-1.5 text-[11px] px-1.5 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-800">Revenda</span>}
                     {order.type === "PICKUP" && " · 🏪 Retirada"}
                   </p>
                 </div>

@@ -28,6 +28,7 @@ interface CartStore {
   updateQty: (productId: string, quantity: number) => "ok" | "stock_limit";
   updateNotes: (productId: string, notes: string) => void;
   clear: () => void;
+  syncPrices: (prices: Record<string, number>) => void;
   setCoupon: (code: string, discount: number) => void;
   clearCoupon: () => void;
   subtotal: () => number;
@@ -106,6 +107,20 @@ export const useCart = create<CartStore>()(
       },
 
       clear: () => set({ items: [], couponCode: null, discount: 0 }),
+
+      // O carrinho fica no navegador (localStorage). Ao trocar de conta (varejo <-> revendedor) os preços
+      // guardados ficam errados: reaplica os que o servidor enviou para a sessão atual.
+      syncPrices: (prices) =>
+        set((state) => {
+          let changed = false;
+          const items = state.items.map((i) => {
+            const p = prices[i.product.id];
+            if (p === undefined || p === i.product.price) return i;
+            changed = true;
+            return { ...i, product: { ...i.product, price: p } };
+          });
+          return changed ? { items, couponCode: null, discount: 0 } : state;
+        }),
 
       setCoupon: (code, discount) => set({ couponCode: code, discount }),
       clearCoupon: () => set({ couponCode: null, discount: 0 }),

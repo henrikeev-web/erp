@@ -4,6 +4,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { resolveUnit } from "@/lib/api-auth";
+import { getSessionPricing } from "@/lib/pricing";
+import { RESELLER_INVOICE_DAYS } from "@/lib/invoice-terms";
 import { createOrder, findOrCreateCustomerByPhone, OrderError } from "@/lib/order-service";
 
 const schema = z.object({
@@ -27,7 +29,8 @@ const schema = z.object({
   type: z.enum(["DELIVERY", "PICKUP", "DINE_IN"]).default("DELIVERY"),
   notes: z.string().optional(),
   couponCode: z.string().optional(),
-  paymentMethod: z.enum(["CASH", "PIX", "CREDIT_CARD", "DEBIT_CARD", "VOUCHER", "ONLINE_CREDIT", "ONLINE_PIX", "ONLINE_BOLETO"]),
+  paymentMethod: z.enum(["CASH", "PIX", "CREDIT_CARD", "DEBIT_CARD", "VOUCHER", "ONLINE_CREDIT", "ONLINE_PIX", "ONLINE_BOLETO", "INVOICE"]),
+  invoiceDays: z.number().int().optional(), // só faturado (revendedor)
   changeAmount: z.number().optional(),
   items: z.array(z.object({
     productId: z.string(),
@@ -47,6 +50,15 @@ export async function POST(req: NextRequest) {
 
     const session = await getServerSession(authOptions);
     const loggedIn = session?.user?.role === "CUSTOMER" && session.user.unitId === unit.id;
+
+    // Nível de preço vem da SESSÃO + banco. Nada do corpo da requisição influencia o preço.
+    const { tier } = loggedIn ? await getSessionPricing(unit.id) : { tier: "RETAIL" as const };
+
+    // Faturado: só revendedor logado, prazo dentre as opções permitidas
+    if (data.paymentMethod === "INVOICE") {
+      if (tier !== "RESELLER") throw new OrderError("Forma de pagamento indisponível", 403);
+      if (!(RESELLER_INVOICE_DAYS as readonly number[]).includes(data.invoiceDays ?? -1)) throw new OrderError(`Prazo inválido. Opções: ${RESELLER_INVOICE_DAYS.join(", ")} dias`);
+    }
 
     let customerId: string;
     if (loggedIn) {
@@ -83,6 +95,8 @@ export async function POST(req: NextRequest) {
       changeAmount: data.changeAmount,
       items: data.items,
       source: "STOREFRONT",
+      pricing: tier,
+      invoiceDays: data.paymentMethod === "INVOICE" ? data.invoiceDays : undefined,
     });
 
     return NextResponse.json(order, { status: 201 });

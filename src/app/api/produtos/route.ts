@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff, resolveUnit } from "@/lib/api-auth";
-import { PUBLIC_PRODUCT_OMIT, parseInternalFields } from "@/lib/product-fields";
+import { parseInternalFields } from "@/lib/product-fields";
+import { applyTierPricing, getSessionPricing, productOmitFor } from "@/lib/pricing";
+import type { PricingTier } from "@/lib/pricing";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -13,6 +15,7 @@ export async function GET(req: NextRequest) {
 
   // Público (cardápio); includeInactive é só para o painel
   let unitId: string;
+  let tier: PricingTier = "RETAIL";
   if (includeInactive) {
     const auth = await requireStaff();
     if (auth instanceof NextResponse) return auth;
@@ -21,6 +24,7 @@ export async function GET(req: NextRequest) {
     const unit = await resolveUnit();
     if (unit instanceof NextResponse) return unit;
     unitId = unit.id;
+    tier = (await getSessionPricing(unit.id)).tier; // nível vem da sessão, nunca da query
   }
 
   try {
@@ -42,7 +46,7 @@ export async function GET(req: NextRequest) {
     const products = await prisma.product.findMany({
       where,
       // Dados internos (código de barras, NCM, embalagem) só para o painel
-      omit: includeInactive ? undefined : PUBLIC_PRODUCT_OMIT,
+      omit: includeInactive ? undefined : productOmitFor(tier),
       include: {
         images: { orderBy: { order: "asc" } },
         category: { select: { id: true, name: true, slug: true } },
@@ -51,7 +55,10 @@ export async function GET(req: NextRequest) {
       orderBy: [{ featured: "desc" }, { order: "asc" }, { name: "asc" }],
     });
 
-    return NextResponse.json(products);
+    // Painel (staff) vê tudo; público recebe o preço do seu nível e NUNCA o campo resalePrice
+    return NextResponse.json(includeInactive ? products : products.map((p: any) => applyTierPricing(p, tier)), {
+      headers: tier === "RESELLER" ? { "Cache-Control": "private, no-store" } : undefined,
+    });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Erro interno" }, { status: 500 });

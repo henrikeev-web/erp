@@ -38,7 +38,7 @@ export async function POST(req: Request) {
   const existing = await prisma.customer.findFirst({ where: { unitId: unit.id, phone } });
   if (existing) {
     // Conta já ativada (senha ou outro Google): não dá para "assumir" pelo telefone
-    if (existing.passwordHash || existing.googleId) {
+    if (existing.passwordHash || existing.googleId || existing.type !== "RETAIL") {
       return NextResponse.json({ error: "Este telefone já tem conta. Entre com sua senha." }, { status: 409 });
     }
     // Cadastro criado só por compra como visitante: vincula ao Google (mesmo fluxo do register)

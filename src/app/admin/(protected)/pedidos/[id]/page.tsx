@@ -18,7 +18,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const order = await prisma.order.findFirst({
     where: { id, unitId: unit.id },
     include: {
-      customer: { include: { children: true, loyaltyCard: true } },
+      customer: { omit: { passwordHash: true }, include: { children: true, loyaltyCard: true } },
       address: { include: { deliveryZone: true } },
       items: true,
       payment: true,

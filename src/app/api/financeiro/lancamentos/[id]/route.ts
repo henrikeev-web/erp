@@ -32,6 +32,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (entry.status !== "OPEN") return NextResponse.json({ error: "Só lançamentos em aberto podem ser baixados" }, { status: 409 });
       const p = paySchema.parse(body);
       const paidAt = p.paidAt ? parseDateOnly(p.paidAt) : todayUTC();
+      // Conta a receber de pedido faturado: o pagamento do pedido acompanha a baixa
+      if (entry.orderId) await prisma.payment.updateMany({ where: { orderId: entry.orderId, order: { unitId: unit.id } }, data: { status: "PAID", paidAt } });
       const updated = await prisma.financialEntry.update({
         where: { id, unitId: unit.id },
         data: { status: "PAID", paidAt, paidAmount: Math.round((p.paidAmount ?? entry.amount) * 100) / 100, payMethod: p.payMethod ?? null },
@@ -40,6 +42,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
     if (action === "reopen") {
       if (entry.status === "OPEN") return NextResponse.json({ error: "Lançamento já está em aberto" }, { status: 409 });
+      if (entry.orderId && entry.status === "PAID") await prisma.payment.updateMany({ where: { orderId: entry.orderId, order: { unitId: unit.id } }, data: { status: "PENDING", paidAt: null } });
       return NextResponse.json(await prisma.financialEntry.update({ where: { id, unitId: unit.id }, data: { status: "OPEN", paidAt: null, paidAmount: null, payMethod: null } }));
     }
     if (action === "cancel") {

@@ -11,7 +11,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!customer) return NextResponse.json({ error: "Cliente não encontrado" }, { status: 404 });
 
   const body = await req.json();
-  const { label, cep, street, number, complement, neighborhood, city, state, deliveryZoneId } = body;
+  const { label, cep, street, number, complement, neighborhood, city, state } = body;
+  const deliveryZoneId: string | undefined = body.deliveryZoneId || undefined; // "" vira ausente (evita erro de chave estrangeira)
 
   // A zona informada precisa ser da mesma unidade do cliente
   if (deliveryZoneId) {

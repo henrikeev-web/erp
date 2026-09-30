@@ -8,11 +8,14 @@ import { formatCurrency, formatCep } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import axios from "axios";
+import { RESELLER_INVOICE_DAYS } from "@/lib/invoice-terms";
 
 interface CheckoutModalProps {
   open: boolean;
   onClose: () => void;
   brandId?: string; // legado: a unidade agora vem do host
+  /** Sessão de revendedor (decidido no servidor): habilita "Faturado" e desabilita cupom */
+  isReseller?: boolean;
 }
 
 type Step = "customer" | "address" | "payment" | "confirm" | "success";
@@ -60,7 +63,7 @@ const PAYMENT_METHODS = [
   { value: "CASH", label: "Dinheiro", icon: "💵", online: false },
 ];
 
-export default function CheckoutModal({ open, onClose }: CheckoutModalProps) {
+export default function CheckoutModal({ open, onClose, isReseller = false }: CheckoutModalProps) {
   const { items, subtotal, total, clear, couponCode, discount, setCoupon, clearCoupon } = useCart();
   const { data: session } = useSession();
   const isLoggedIn = session?.user?.role === "CUSTOMER";
@@ -77,6 +80,7 @@ export default function CheckoutModal({ open, onClose }: CheckoutModalProps) {
   const [orderType, setOrderType] = useState<"DELIVERY" | "PICKUP">("DELIVERY");
   const [paymentMethod, setPaymentMethod] = useState("PIX");
   const [changeAmount, setChangeAmount] = useState("");
+  const [invoiceDays, setInvoiceDays] = useState<number>(RESELLER_INVOICE_DAYS[1]);
   const [couponInput, setCouponInput] = useState("");
   const [orderId, setOrderId] = useState("");
   const [orderNumber, setOrderNumber] = useState(0);
@@ -193,7 +197,8 @@ export default function CheckoutModal({ open, onClose }: CheckoutModalProps) {
         type: orderType,
         paymentMethod,
         changeAmount: paymentMethod === "CASH" && changeAmount ? parseFloat(changeAmount) : undefined,
-        couponCode: couponCode || undefined,
+        invoiceDays: paymentMethod === "INVOICE" ? invoiceDays : undefined,
+        couponCode: isReseller ? undefined : couponCode || undefined,
         items: items.map((i) => ({ productId: i.product.id, quantity: i.quantity, notes: i.notes })),
       });
 
@@ -482,6 +487,29 @@ export default function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                   ))}
                 </div>
               </div>
+              {isReseller && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide pt-1">Faturar</p>
+                  <button onClick={() => setPaymentMethod("INVOICE")}
+                    className={`w-full py-3 px-3 rounded-xl border text-sm font-medium transition-all text-left flex items-center gap-2 ${paymentMethod === "INVOICE" ? "border-orange-500 bg-orange-50 text-orange-700" : "border-zinc-200 text-zinc-600 hover:border-zinc-300"}`}>
+                    <span>🧾</span> Faturado — pagar depois
+                  </button>
+                  {paymentMethod === "INVOICE" && (
+                    <div>
+                      <label className="text-sm text-zinc-600 mb-1.5 block">Prazo para pagamento</label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {RESELLER_INVOICE_DAYS.map((d) => (
+                          <button key={d} onClick={() => setInvoiceDays(d)}
+                            className={`py-2 rounded-xl border text-sm font-medium ${invoiceDays === d ? "border-orange-500 bg-orange-50 text-orange-700" : "border-zinc-200 text-zinc-600"}`}>
+                            {d} dias
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-zinc-500 mt-1.5">O prazo conta a partir da data do pedido.</p>
+                    </div>
+                  )}
+                </div>
+              )}
               {paymentMethod === "CASH" && (
                 <div>
                   <label className="text-sm text-zinc-600 mb-1.5 block">Troco para quanto?</label>
@@ -494,6 +522,7 @@ export default function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                 </div>
               )}
 
+              {!isReseller && (
               <div className="border-t pt-4">
                 <label className="text-sm text-zinc-600 mb-1.5 block">Cupom de desconto</label>
                 <div className="flex gap-2">
@@ -517,6 +546,7 @@ export default function CheckoutModal({ open, onClose }: CheckoutModalProps) {
                 )}
                 {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
               </div>
+              )}
             </div>
           )}
 

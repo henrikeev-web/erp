@@ -2,12 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireStaff } from "@/lib/api-auth";
+import bcrypt from "bcryptjs";
+import { randomInt } from "crypto";
+
+const ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN"];
+
+/** Senha provisória legível (sem caracteres ambíguos), mostrada UMA vez ao admin. */
+function tempPassword() {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 10 }, () => chars[randomInt(chars.length)]).join("");
+}
 
 const createCustomerSchema = z.object({
   name: z.string().min(2),
   phone: z.string().min(10),
   email: z.string().email().optional().or(z.literal("")),
   cpf: z.string().optional(),
+  type: z.enum(["RETAIL", "RESELLER"]).default("RETAIL"),
   notes: z.string().optional(),
   children: z.array(z.object({
     name: z.string(),
@@ -23,6 +34,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q");
   const inactive = searchParams.get("inativo");
+  const tipo = searchParams.get("tipo");
   const page = parseInt(searchParams.get("page") ?? "1");
   const limit = parseInt(searchParams.get("limit") ?? "20");
 
@@ -32,6 +44,7 @@ export async function GET(req: NextRequest) {
 
   const where: Record<string, unknown> = {
     unitId: unit.id,
+    ...(tipo && ["RETAIL", "RESELLER", "FRANCHISEE"].includes(tipo) && { type: tipo }),
     ...(semPedido === "true" && { lastOrderAt: null }),
     ...(inactiveDays != null && !semPedido && {
       OR: [
@@ -51,6 +64,7 @@ export async function GET(req: NextRequest) {
   const [customers, total] = await Promise.all([
     prisma.customer.findMany({
       where,
+      omit: { passwordHash: true },
       include: {
         children: true,
         loyaltyCard: { select: { points: true, tier: true } },
@@ -75,13 +89,21 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const data = createCustomerSchema.parse(body);
 
+    // Só ADMIN cadastra revendedor (quem tem acesso a preço de revenda)
+    if (data.type === "RESELLER" && !ADMIN_ROLES.includes(auth.role)) {
+      return NextResponse.json({ error: "Apenas administradores cadastram revendedores" }, { status: 403 });
+    }
     const existing = await prisma.customer.findFirst({ where: { unitId: unit.id, phone: data.phone } });
     if (existing) {
       return NextResponse.json({ error: "Telefone já cadastrado", customerId: existing.id }, { status: 409 });
     }
 
+    // Revendedor entra com senha provisória definida pelo admin (trocável depois)
+    const provisional = data.type === "RESELLER" ? tempPassword() : null;
     const customer = await prisma.customer.create({
       data: {
+        type: data.type,
+        passwordHash: provisional ? await bcrypt.hash(provisional, 10) : undefined,
         brandId: unit.brandId,
         unitId: unit.id,
         name: data.name,
@@ -94,11 +116,13 @@ export async function POST(req: NextRequest) {
           : undefined,
       },
       include: { children: true, loyaltyCard: true },
+      omit: { passwordHash: true },
     });
 
     await prisma.loyaltyCard.create({ data: { customerId: customer.id } });
 
-    return NextResponse.json(customer, { status: 201 });
+    // A senha provisória sai UMA vez, só nesta resposta ao admin (não é guardada em texto)
+    return NextResponse.json({ ...customer, ...(provisional ? { tempPassword: provisional } : {}) }, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "Dados inválidos", details: error.issues }, { status: 422 });
