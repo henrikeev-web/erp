@@ -105,6 +105,18 @@ Variáveis: `BASE_DOMAIN`, `AUTH_HOST`, `COOKIE_DOMAIN` (prod, `.banguelas.com.b
 
 ---
 
+## Franquias (gestão da rede)
+
+`/admin/franquias` — **só administrador da MATRIZ** (`requireHQAdmin`; a franquia recebe 403). Uma franquia é uma `Unit` `FRANCHISE`. **Cadastrar franqueado** (`POST /api/franquias`, também via Clientes → Novo → Franqueado) cria de uma vez, numa transação: a unidade (**link de acesso** = `slug`, em `slug.BASE_DOMAIN`), o franqueado como `Customer` `FRANCHISEE` da matriz (`franchiseUnitId`), os **usuários do painel da franquia** (ADMIN/STAFF, senha provisória exibida UMA vez; login em `slug.dominio/admin/login`) e — opcional — a cópia do catálogo. Se qualquer dado conflitar (link, e-mail, telefone, CPF/CNPJ) nada fica criado.
+
+- **Link**: slug validado (`isValidSlug`) e não pode ser reservado (`RESERVED_SLUGS`: www, cardapio, admin, api, matriz…); não muda depois. Desativar a franquia derruba o link na hora (`clearUnitCache`); nada é apagado.
+- **Usuários** (`/api/franquias/[id]/usuarios`): criar, redefinir senha, ativar/desativar, mudar perfil — só pela matriz. A franquia **nunca fica sem administrador ativo**. `User.email` é único na rede.
+- **Catálogo** (`src/lib/catalog-sync.ts`): a franquia tem a sua **cópia** (`Product/Category` com `unitId` próprio, ligada por `sourceProductId`/`sourceCategoryId`). `syncCatalogToUnit` cria o que falta e atualiza conteúdo (nome, descrição, ingredientes, categoria, fotos, combos), **sem tocar** em estoque (nasce zerado), preço de revenda, nem preço personalizado (`priceCustom`). Matriz desativa → franquia desativa (reativar é da franquia). Dispara **sozinho** (`scheduleCatalogSync`, agrupa 2,5 s) após qualquer alteração de produto/categoria/combo/foto NA MATRIZ — toda rota nova que altere o catálogo da matriz deve chamá-lo — e manualmente em Gerenciar → Sincronizar.
+- **Na franquia**: produto/combo copiado da rede só aceita **preço**, ativo e destaque (o resto vem da matriz e seria sobrescrito); mudar o preço marca `priceCustom`. Produtos criados localmente (sem `sourceProductId`) são livres. Estoque, pedidos, clientes, financeiro, entregadores e zonas são da franquia.
+- **Visibilidade no menu**: Franquias e Escola/NFS-e só na matriz (`hqOnly`).
+
+---
+
 ## Combos personalizados
 
 Combo = `Product` com `kind: COMBO`: **preço fixo**, **quantidade EXATA** (`comboSize`, ex.: 20) e uma lista de produtos do cardápio (`ComboItem`, com `maxQty` opcional por produto). O cliente distribui a quantidade entre os produtos; sem limite indicado, vale qualquer quantidade até completar o total. Cadastro em `/admin/combos` (qualquer staff).
@@ -699,6 +711,6 @@ Os produtos e categorias reais da Banguelas foram importados via `prisma/reset-c
 - [x] NFS-e mensal para pais de escola — integração direta GissOnline ABRASF 2.04 (SJRP)
 - [ ] NFCe por pedido via SEFAZ (estrutura `FiscalDocument` já existe no schema)
 - [ ] Fluxo n8n para WhatsApp bot (Evolution API + Gemini + endpoints `/api/whatsapp/*`)
-- [ ] Multi-unidade / franqueados — fase 0 feita (Unit + unitId + escopo das rotas); login Google feito; falta dashboard da matriz, cadastro de franqueado/revendedor, pedidos de reposição, sync de catálogo
+- [ ] Multi-unidade / franqueados — fase 0 feita (Unit + unitId + escopo das rotas); login Google feito; cadastro de franqueado/link/usuários e sync de catálogo feitos; falta dashboard da matriz, pedidos de reposição do franqueado, notificações/pop-ups e premiações
 - [ ] Segunda marca "Minuto Menu" (mesma stack, nova Brand no banco)
 - [ ] Deploy em VPS (PM2 + Nginx + Let's Encrypt) — volume persistente para `public/uploads/` + `print-agent` rodando como serviço separado

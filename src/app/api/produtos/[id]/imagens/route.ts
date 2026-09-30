@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { scheduleCatalogSync } from "@/lib/catalog-sync";
 import { requireStaff } from "@/lib/api-auth";
 
 async function ownProduct(id: string, unitId: string) {
@@ -34,5 +35,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const image = await prisma.productImage.create({
     data: { productId: id, url, alt: alt ?? null, isMain: isMain ?? false, order: 0 },
   });
+  scheduleCatalogSync(auth.unit);
   return NextResponse.json(image, { status: 201 });
 }

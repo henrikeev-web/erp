@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { scheduleCatalogSync } from "@/lib/catalog-sync";
 import { requireStaff } from "@/lib/api-auth";
 import { comboSchema } from "@/lib/combo-schema";
 import { checkCombo, comboInclude } from "@/lib/combo-admin";
@@ -41,6 +42,7 @@ export async function POST(req: NextRequest) {
       include: comboInclude,
       omit: { resalePrice: true },
     });
+    scheduleCatalogSync(unit);
     return NextResponse.json(combo, { status: 201 });
   } catch (e) {
     if (e instanceof z.ZodError) return NextResponse.json({ error: e.issues[0]?.message ?? "Dados inválidos" }, { status: 400 });

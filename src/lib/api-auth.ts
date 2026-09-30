@@ -85,3 +85,11 @@ export async function requireStaffOrAgent(): Promise<{ unit: Unit } | NextRespon
   if (auth instanceof NextResponse) return auth;
   return { unit: auth.unit };
 }
+
+/** Só administrador da MATRIZ (gestão da rede: franquias, usuários das franquias). */
+export async function requireHQAdmin(): Promise<{ unit: Unit; userId: string; role: string } | NextResponse> {
+  const auth = await requireStaff(["SUPER_ADMIN", "ADMIN"]);
+  if (auth instanceof NextResponse) return auth;
+  if (auth.unit.type !== "HQ") return NextResponse.json({ error: "Apenas a matriz gerencia as franquias" }, { status: 403 });
+  return auth;
+}

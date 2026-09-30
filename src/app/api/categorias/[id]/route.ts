@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { scheduleCatalogSync } from "@/lib/catalog-sync";
 import { requireStaff } from "@/lib/api-auth";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -33,6 +34,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ...(active !== undefined && { active }),
       },
     });
+    scheduleCatalogSync(auth.unit);
     return NextResponse.json(category);
   } catch {
     return NextResponse.json({ error: "Erro ao atualizar" }, { status: 500 });
@@ -45,6 +47,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   try {
     await prisma.category.update({ where: { id, unitId: auth.unit.id }, data: { active: false } });
+    scheduleCatalogSync(auth.unit);
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Erro ao remover" }, { status: 500 });

@@ -3,15 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireStaff } from "@/lib/api-auth";
 import bcrypt from "bcryptjs";
-import { randomInt } from "crypto";
+import { tempPassword } from "@/lib/passwords";
 
 const ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN"];
-
-/** Senha provisória legível (sem caracteres ambíguos), mostrada UMA vez ao admin. */
-function tempPassword() {
-  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  return Array.from({ length: 10 }, () => chars[randomInt(chars.length)]).join("");
-}
 
 const createCustomerSchema = z.object({
   name: z.string().min(2),

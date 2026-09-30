@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { randomInt } from "crypto";
+import { tempPassword } from "@/lib/passwords";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/api-auth";
@@ -21,8 +21,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const parsed = schema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Dados inválidos" }, { status: 400 });
 
-  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const generated = parsed.data.password ? null : Array.from({ length: 10 }, () => chars[randomInt(chars.length)]).join("");
+  const generated = parsed.data.password ? null : tempPassword();
   await prisma.customer.update({ where: { id, unitId: auth.unit.id }, data: { passwordHash: await bcrypt.hash(parsed.data.password ?? generated!, 10) } });
 
   return NextResponse.json({ ok: true, ...(generated ? { tempPassword: generated } : {}) });

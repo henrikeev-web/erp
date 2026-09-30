@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { scheduleCatalogSync } from "@/lib/catalog-sync";
 import { requireStaff, resolveUnit } from "@/lib/api-auth";
 
 // Público (cardápio); includeInactive é só para o painel
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
     const category = await prisma.category.create({
       data: { unitId: auth.unit.id, name, slug, imageUrl, ageMin, ageMax, order: order ?? 0 },
     });
+    scheduleCatalogSync(auth.unit);
     return NextResponse.json(category, { status: 201 });
   } catch (err: any) {
     if (err?.code === "P2002") return NextResponse.json({ error: "Slug já existe" }, { status: 409 });

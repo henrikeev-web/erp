@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { scheduleCatalogSync } from "@/lib/catalog-sync";
 import { requireStaff } from "@/lib/api-auth";
 import { unlink } from "fs/promises";
 import { join } from "path";
@@ -24,6 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const image = await prisma.productImage.update({ where: { id: imgId }, data: body });
+  scheduleCatalogSync(auth.unit);
   return NextResponse.json(image);
 }
 
@@ -46,5 +48,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   }
 
   await prisma.productImage.delete({ where: { id: imgId } });
+  scheduleCatalogSync(auth.unit);
   return NextResponse.json({ ok: true });
 }

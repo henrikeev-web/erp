@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { scheduleCatalogSync } from "@/lib/catalog-sync";
 import { requireStaff, resolveUnit } from "@/lib/api-auth";
 import { parseInternalFields } from "@/lib/product-fields";
 import { applyTierPricing, getSessionPricing, productOmitFor } from "@/lib/pricing";
@@ -105,6 +106,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    scheduleCatalogSync(auth.unit);
     return NextResponse.json(product, { status: 201 });
   } catch (error: any) {
     if (error?.code === "P2002") return NextResponse.json({ error: "SKU ou código de barras já cadastrado" }, { status: 409 });

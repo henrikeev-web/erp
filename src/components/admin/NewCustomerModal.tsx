@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { Copy, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,9 @@ interface Props { onClose: () => void; onCreated: (c: Created) => void; defaultT
 /** Cadastro de cliente pelo painel. "Revendedor" só aparece para administradores. */
 export default function NewCustomerModal({ onClose, onCreated, defaultType = "RETAIL" }: Props) {
   const { data: session } = useSession();
+  const router = useRouter();
+  const [isHQ, setIsHQ] = useState(false);
+  useEffect(() => { axios.get("/api/unit").then(({ data }) => setIsHQ(data.type === "HQ")).catch(() => setIsHQ(false)); }, []);
   const isAdmin = ["ADMIN", "SUPER_ADMIN"].includes(session?.user?.role ?? "");
   const [type, setType] = useState<"RETAIL" | "RESELLER">(isAdmin ? defaultType : "RETAIL");
   const [name, setName] = useState("");
@@ -68,6 +72,8 @@ export default function NewCustomerModal({ onClose, onCreated, defaultType = "RE
                 {([["RETAIL", "Cliente"], ["RESELLER", "Revendedor"]] as const).map(([v, l]) => (
                   <button key={v} onClick={() => setType(v)} className={`flex-1 px-3 py-1.5 rounded-lg text-sm font-medium ${type === v ? "bg-white shadow-sm text-zinc-900" : "text-zinc-500"}`}>{l}</button>
                 ))}
+                {/* Franqueado = franquia inteira (unidade + link + usuários): abre o cadastro completo */}
+                {isHQ && <button onClick={() => router.push("/admin/franquias?novo=1")} className="flex-1 px-3 py-1.5 rounded-lg text-sm font-medium text-zinc-500 hover:text-zinc-900">Franqueado</button>}
               </div>
             )}
             {type === "RESELLER" && <p className="text-xs text-amber-800 bg-amber-50 rounded-lg px-3 py-2">Revendedor enxerga os preços de revenda e pode faturar pedidos. Será gerada uma senha provisória.</p>}

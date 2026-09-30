@@ -70,21 +70,22 @@ model Unit {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  brand            Brand            @relation(fields: [brandId], references: [id])
-  users            User[]
-  customers        Customer[]
-  orders           Order[]
-  products         Product[]
-  categories       Category[]
-  coupons          Coupon[]
-  deliveryZones    DeliveryZone[]
-  thematicMenus    ThematicMenu[]
-  bannerSlides     BannerSlide[]
-  suppliers        Supplier[]
-  costCenters      CostCenter[]
-  financialEntries FinancialEntry[]
-  recurringEntries RecurringEntry[]
-  couriers         Courier[]
+  brand              Brand            @relation(fields: [brandId], references: [id])
+  users              User[]
+  customers          Customer[]
+  orders             Order[]
+  products           Product[]
+  categories         Category[]
+  coupons            Coupon[]
+  deliveryZones      DeliveryZone[]
+  thematicMenus      ThematicMenu[]
+  bannerSlides       BannerSlide[]
+  suppliers          Supplier[]
+  costCenters        CostCenter[]
+  financialEntries   FinancialEntry[]
+  recurringEntries   RecurringEntry[]
+  couriers           Courier[]
+  franchiseeCustomer Customer?        @relation("FranchiseCustomer")
 }
 
 // ─── USUÁRIOS ADMIN / STAFF ──────────────────────────────────────────────────
@@ -166,21 +167,24 @@ enum OrderPriceTier {
 // ─── CLIENTES ────────────────────────────────────────────────────────────────
 
 model Customer {
-  id           String       @id @default(cuid())
-  brandId      String
-  unitId       String
-  name         String
-  email        String?
-  phone        String
-  cpf          String?
-  passwordHash String?
-  googleId     String?
-  active       Boolean      @default(true)
-  type         CustomerType @default(RETAIL)
-  notes        String?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  lastOrderAt  DateTime?
+  id              String       @id @default(cuid())
+  brandId         String
+  unitId          String
+  name            String
+  email           String?
+  phone           String
+  cpf             String?
+  passwordHash    String?
+  googleId        String?
+  active          Boolean      @default(true)
+  type            CustomerType @default(RETAIL)
+  // FRANCHISEE: a unidade (franquia) que este cliente da matriz representa
+  franchiseUnitId String?      @unique
+  franchiseUnit   Unit?        @relation("FranchiseCustomer", fields: [franchiseUnitId], references: [id])
+  notes           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  lastOrderAt     DateTime?
 
   // Preferências de notificação
   notifWhatsapp Boolean @default(false)
@@ -263,55 +267,60 @@ model DeliveryZone {
 // ─── CARDÁPIO ────────────────────────────────────────────────────────────────
 
 model Category {
-  id       String  @id @default(cuid())
-  unitId   String
-  name     String
-  slug     String
-  imageUrl String?
-  ageMin   Int?
-  ageMax   Int?
-  order    Int     @default(0)
-  active   Boolean @default(true)
+  id               String  @id @default(cuid())
+  unitId           String
+  name             String
+  slug             String
+  sourceCategoryId String?
+  imageUrl         String?
+  ageMin           Int?
+  ageMax           Int?
+  order            Int     @default(0)
+  active           Boolean @default(true)
 
   products Product[]
   unit     Unit?     @relation(fields: [unitId], references: [id])
 
   @@unique([unitId, slug])
+  @@unique([unitId, sourceCategoryId])
   @@index([unitId])
 }
 
 model Product {
-  id            String      @id @default(cuid())
-  brandId       String
-  unitId        String
-  categoryId    String?
-  name          String
-  description   String?
-  price         Float
-  priceOriginal Float?
-  sku           String?
-  ageMin        Int?
-  ageMax        Int?
-  weight        Float?
-  servings      Int?
-  ingredients   String?
-  allergens     String?
+  id              String      @id @default(cuid())
+  brandId         String
+  unitId          String
+  categoryId      String?
+  name            String
+  description     String?
+  price           Float
+  priceOriginal   Float?
+  sku             String?
+  ageMin          Int?
+  ageMax          Int?
+  weight          Float?
+  servings        Int?
+  ingredients     String?
+  allergens       String?
   // Dados internos (logística/fiscal) — nunca expostos no cardápio público
-  resalePrice   Float? // preço de revenda (fixo, igual p/ todos os revendedores) — NUNCA público
-  barcode       String?
-  ncm           String?
-  packWeightG   Int? // peso da embalagem, em gramas
-  packLengthCm  Float?
-  packWidthCm   Float?
-  packHeightCm  Float?
-  kind          ProductKind @default(SIMPLE)
-  comboSize     Int? // combo: quantidade EXATA de itens que o cliente monta
-  frozen        Boolean     @default(true)
-  active        Boolean     @default(true)
-  featured      Boolean     @default(false)
-  order         Int         @default(0)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  resalePrice     Float? // preço de revenda (fixo, igual p/ todos os revendedores) — NUNCA público
+  barcode         String?
+  ncm             String?
+  packWeightG     Int? // peso da embalagem, em gramas
+  packLengthCm    Float?
+  packWidthCm     Float?
+  packHeightCm    Float?
+  // Franquias: produto da matriz do qual esta cópia veio (sincronização) e se a franquia definiu preço próprio
+  sourceProductId String?
+  priceCustom     Boolean     @default(false)
+  kind            ProductKind @default(SIMPLE)
+  comboSize       Int? // combo: quantidade EXATA de itens que o cliente monta
+  frozen          Boolean     @default(true)
+  active          Boolean     @default(true)
+  featured        Boolean     @default(false)
+  order           Int         @default(0)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   brand                Brand                 @relation(fields: [brandId], references: [id])
   category             Category?             @relation(fields: [categoryId], references: [id])
@@ -325,6 +334,7 @@ model Product {
   orderComponents      OrderItemComponent[]
 
   @@unique([unitId, sku])
+  @@unique([unitId, sourceProductId])
   @@unique([unitId, barcode])
   @@index([unitId])
 }
