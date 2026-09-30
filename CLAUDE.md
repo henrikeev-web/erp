@@ -180,7 +180,70 @@ Acesso de fora: túnel SSH `ssh -L 3000:127.0.0.1:3000 usuario@servidor` e abrir
 
 ---
 
-## Infraestrutura Docker
+## Segunda etapa — em produção desde 2026-09-30
+
+A "segunda etapa" (branch `feat/planejamento`, mergeada na `main` no commit `b3ad880`) entrou em produção em 2026-09-30. Antes dela a produção rodava o commit `d41e18c` (loja + ERP de UMA unidade). Tudo abaixo foi implementado e está no ar:
+
+- **Multi-unidade** (matriz + franquias, um banco só) e links por cidade (`cidade.banguelas.com.br`).
+- **Login Google** no domínio principal com retorno seguro.
+- **Combos personalizados**, **pedido manual** com desconto, **financeiro** (a pagar/receber, recorrência, fornecedores, centros de custo), **entregadores** (pagos por entrega, relatório, conta a pagar diária), **campos internos do produto** (código de barras, NCM, peso/dimensões), **revendedores** (preço de revenda sigiloso, faturamento por pedido), **filtro por período** nos pedidos e **cancelamento devolvendo estoque**.
+- **Franquias**: cadastro do franqueado com link e usuários, dashboard da rede, reposição (pedidos à matriz, histórico, repetir, lançamentos, mais pedidos), avisos/pop-ups, premiações, sincronização de catálogo e preço próprio.
+- Detalhes de cada módulo estão nas seções acima (Multi-unidade, Revendedores, Franquias, Combos, Entregadores, Financeiro, Rede).
+- **Pendente da etapa**: verificação de assinatura do webhook InfinityPay (a posteriori); teste dos pop-ups em navegador real; DNS curinga + certificado para as franquias; integração com InfinityPay em produção.
+
+### Migração do banco de produção (2026-09-30)
+O banco antigo não tinha `unitId`. Aplicada em 3 passos, numa única transação, com o app parado (scripts em `docs/migracao-multiunidade/`):
+1. `1-adiciona-estrutura.sql` — tabelas/colunas novas, `unitId` ainda opcional.
+2. `2-preenche-dados.sql` — cria a unidade `matriz` (HQ) e associa TODOS os dados existentes; aborta se sobrar linha sem unidade.
+3. `3-torna-obrigatorio.sql` — `unitId` obrigatório + uniques compostos por unidade.
+Foi ensaiada antes numa cópia restaurada do backup (resultado: schema idêntico ao final, 93 produtos/12 clientes/1 usuário/1 zona preservados). **Não use `prisma db push` para migrar um banco antigo**: ele pediria para apagar dados.
+**Atenção**: o `CMD` do Dockerfile roda `npx prisma db push && npm start`. Se o schema mudar de forma destrutiva, o deploy pode falhar ou pedir confirmação — migre o banco à mão antes de subir.
+**Rollback**: restaurar o dump `producao-pre-go-20260930-190159.dump` e redeployar o commit `d41e18c`.
+
+---
+
+## Acessos e infraestrutura de produção
+
+> **Nenhuma senha, token ou chave é registrada aqui** (este arquivo vai para o Git). Valores ficam no Coolify (variáveis do app), no gerenciador de senhas do dono e nos arquivos de backup protegidos do servidor. Se perder um segredo, gere outro e troque.
+
+**Servidor** (VPS, Linux; o mesmo hospeda outros apps: Supabase, n8n, Evolution API, cartório). Tudo sob Coolify 4.1.2 + Traefik (portas 80/443).
+
+| O quê | Onde / como |
+|---|---|
+| Site (loja + admin) | `https://cardapio.banguelas.com.br` (matriz). Painel: `/admin/login`; cliente: `/minha-conta/login` |
+| Franquias | `https://<slug>.banguelas.com.br` — **ainda não há DNS curinga** `*.banguelas.com.br`; adicionar cada domínio no Coolify ou criar o curinga + certificado |
+| Coolify (painel) | `http://<IP-do-servidor>:8000` → app **ERP Banguelas** (uuid `hmi9i2v07jvsk541083ib516`, repo `henrikeev-web/erp`, branch `main`, Dockerfile) |
+| Deploy | **Manual** (o push na `main` NÃO dispara sozinho): botão Deploy no Coolify, ou API `GET /api/v1/deploy?uuid=<uuid>` com token |
+| API do Coolify | `http://127.0.0.1:8000/api/v1` (token criado em Keys & Tokens → API Tokens, com `read/write/deploy`; **apague ao terminar**). Gotcha: `/envs` dá 500 se alguma variável estiver gravada sem criptografia no banco do Coolify (já corrigido em 2026-09-30) |
+| Container do app | `hmi9i2v07jvsk541083ib516-<id>` (muda a cada deploy); logs: `docker logs -f $(docker ps --format '{{.Names}}' \| grep hmi9i)` |
+| Banco de produção | container `el1sceqzhimndmzyxanlb2l7` (postgres:16-alpine), usuário `erp`, banco `banguelas_erp`, sem porta pública. Acesso: `docker exec -it el1sceqzhimndmzyxanlb2l7 psql -U erp -d banguelas_erp`. A senha está na `DATABASE_URL` do app no Coolify |
+| Banco do Coolify | container `coolify-db` (postgres:15), usuário `coolify`, banco `coolify` (variáveis de ambiente ficam criptografadas com a APP_KEY; **nunca gravar valor em texto puro** nessa tabela) |
+| Repositório | `git@github-banguelas:henrikeev-web/erp.git` — acesso por **deploy key com escrita** (host alias `github-banguelas` em `~/.ssh/config`) |
+| Google OAuth | Cliente OAuth Web (ID `232141257826-99aoginjuk82fvc2ktdnubhv8ugk0o37.apps.googleusercontent.com`). URI de redirecionamento: `https://cardapio.banguelas.com.br/api/auth/callback/google` (+ `http://localhost:3000/api/auth/callback/google` em dev). O secret só existe no Coolify e no `.env` local |
+| Ambiente de teste local | container `erp-dev-db` (porta 5433, usuário `postgres`, senha `dev`), bancos `erp_dev`, `erp_demo` (demo) e `erp_prodcopy` (cópia do ensaio da migração; pode apagar). Só local |
+
+**Variáveis de ambiente do app em produção (Coolify → ERP Banguelas → Environment Variables)**, todas *runtime* (sem *buildtime*, exceto as três `NEXTAUTH_*`/`NIXPACKS_*` que já existiam):
+`DATABASE_URL`, `NEXTAUTH_URL` (`https://cardapio.banguelas.com.br`), `NEXTAUTH_SECRET`, `BASE_DOMAIN` (`banguelas.com.br`), `AUTH_HOST` (`cardapio.banguelas.com.br`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `WHATSAPP_API_KEY`, `PRINT_AGENT_SECRET`, `NIXPACKS_NODE_VERSION`. Variável nova só vale depois de novo deploy. O Coolify cria cópias "preview" de cada variável (não usadas). **Ainda não definidas**: `COOKIE_DOMAIN` (`.banguelas.com.br`, só quando houver franquias com sessão compartilhada), `INFINITEPAY_HANDLE`, `WAREHOUSE_LAT/LNG`, `NFSE_CERT_*` (conferir se o app de produção já as tinha antes de mexer).
+
+**Usuários do painel (produção)**
+| Usuário | Perfil | Unidade | Observação |
+|---|---|---|---|
+| `admin@banguelas.com.br` | ADMIN | matriz | Usuário do seed. **Verificar se a senha ainda é a padrão do seed (`admin123`) e trocar** |
+| `everton@banguelas.com.br` | ADMIN | matriz (franqueadora) | Criado em 2026-09-30 com senha aleatória de 14 caracteres entregue ao dono uma vez; **trocar no 1º acesso** (ainda não há tela de troca de senha: redefinir via banco com hash bcrypt custo 10) |
+| Franqueados | ADMIN/STAFF | cada franquia | Criados em `/admin/franquias` (senha provisória mostrada uma vez); login em `<slug>.banguelas.com.br/admin/login` |
+
+Criar usuário direto no banco (emergência): gerar senha e hash com `bcryptjs` (custo 10) e `INSERT INTO "User" (id,"unitId",name,email,"passwordHash",role,active,"createdAt","updatedAt")` com `unitId` da unidade desejada (`select id from "Unit" where slug='matriz'`). Use `docker exec -i` (com `-i`) ao passar SQL por stdin.
+
+**Backups (no servidor, `/root/backups/`, modo 600)**: `producao-antes-da-migracao-20260930-172603.dump` e `producao-pre-go-20260930-190159.dump` (banco de produção antes da migração, formato `pg_dump -Fc`; restaurar com `pg_restore`), `coolify-envvars-antes.sql` (tabela de variáveis do Coolify antes da correção). Não há backup automático agendado — **criar rotina** (Coolify → banco → Backups).
+
+**Integrações externas**
+- **WhatsApp/n8n**: endpoints `/api/whatsapp/*` com `Authorization: Bearer <WHATSAPP_API_KEY>`; `?unit=<slug>` (padrão `matriz`). Em produção, sem a chave o acesso é recusado — **o fluxo do n8n precisa usar a chave nova**.
+- **print-agent**: chave por unidade = HMAC(`PRINT_AGENT_SECRET`, slug); gerar com `npx tsx scripts/print-agent-key.ts <slug>`.
+- **InfinityPay**: handle em `INFINITEPAY_HANDLE`; webhook `/api/pagamentos/webhook` (verificação de assinatura pendente).
+
+---
+
+## Infraestrutura Docker (desenvolvimento local)
 
 O projeto roda inteiramente em Docker. Três containers definidos em `docker-compose.yml`:
 
@@ -737,4 +800,5 @@ Os produtos e categorias reais da Banguelas foram importados via `prisma/reset-c
 - [ ] Fluxo n8n para WhatsApp bot (Evolution API + Gemini + endpoints `/api/whatsapp/*`)
 - [ ] Multi-unidade / franqueados — fase 0 feita (Unit + unitId + escopo das rotas); login Google feito; cadastro de franqueado/link/usuários, sync de catálogo, reposição, avisos/pop-ups, premiações e dashboard da rede feitos
 - [ ] Segunda marca "Minuto Menu" (mesma stack, nova Brand no banco)
-- [ ] Deploy em VPS (PM2 + Nginx + Let's Encrypt) — volume persistente para `public/uploads/` + `print-agent` rodando como serviço separado
+- [x] Deploy em produção (Coolify + Traefik, 2026-09-30) — ver "Segunda etapa" e "Acessos e infraestrutura de produção"
+- [ ] Produção: volume persistente para `public/uploads/` (confirmar no Coolify), `print-agent` como serviço, backup agendado do banco, DNS curinga das franquias, trocar senhas dos admins
