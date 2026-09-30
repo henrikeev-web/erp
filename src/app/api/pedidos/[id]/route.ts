@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { emitAdminEvent } from "@/lib/sse";
 import { requireStaff, requireStaffOrAgent } from "@/lib/api-auth";
+import { restoreOrderStock } from "@/lib/order-service";
 
 const STATUSES = ["PENDING", "CONFIRMED", "IN_PRODUCTION", "READY", "DISPATCHED", "DELIVERED", "CANCELLED"];
 
@@ -39,6 +40,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     });
     if (!current) return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
 
+    // Pedido cancelado é definitivo (reabrir consumiria o estoque de novo) e pedido entregue não se cancela
+    if (current.status === "CANCELLED" && status !== undefined) {
+      return NextResponse.json({ error: "Pedido cancelado não pode ser alterado" }, { status: 409 });
+    }
+    if (status === "CANCELLED" && current.status === "DELIVERED") {
+      return NextResponse.json({ error: "Pedido já entregue não pode ser cancelado" }, { status: 409 });
+    }
+
     // ── Entregador ─────────────────────────────────────────────────────────
     // Pedido de ENTREGA não avança para produção/pronto/enviado/entregue sem entregador (retirada não precisa).
     // O custo do entregador (por região) é gravado no pedido ao escolher e não muda se a zona for reajustada depois.
@@ -70,11 +79,28 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       CANCELLED: { cancelledAt: new Date(), cancelReason: cancelReason ?? null },
     };
 
+    // CANCELAMENTO: muda o status e DEVOLVE O ESTOQUE na mesma transação (tudo ou nada). A troca de status é
+    // "reivindicada" com updateMany (status ≠ CANCELLED): dois cancelamentos simultâneos não devolvem duas vezes.
+    if (status === "CANCELLED") {
+      const claimed = await (prisma as any).$transaction(async (tx: any) => {
+        const r = await tx.order.updateMany({
+          where: { id, unitId: auth.unit.id, status: { not: "CANCELLED" } },
+          data: { status, ...timestampMap.CANCELLED },
+        });
+        if (r.count === 0) return false;
+        await restoreOrderStock(tx, id, auth.unit.id);
+        // Pagamento ainda não recebido deixa de valer (pago online exige estorno manual no gateway)
+        await tx.payment.updateMany({ where: { orderId: id, status: { in: ["PENDING", "PROCESSING"] } }, data: { status: "CANCELLED" } });
+        return true;
+      });
+      if (!claimed) return NextResponse.json({ error: "Pedido já estava cancelado" }, { status: 409 });
+    }
+
     const order = await prisma.order.update({
       where: { id, unitId: auth.unit.id },
       data: {
-        ...(status !== undefined && { status }),
-        ...(status !== undefined && timestampMap[status]),
+        ...(status !== undefined && status !== "CANCELLED" && { status }),
+        ...(status !== undefined && status !== "CANCELLED" && timestampMap[status]),
         ...courierData,
       },
       include: {

@@ -115,7 +115,7 @@ Combo = `Product` com `kind: COMBO`: **preço fixo**, **quantidade EXATA** (`com
 - **Cardápio**: produtos COMBO recebem `combo: { size, available, options[] }` (`src/lib/combo-data.ts`) só com nome, limite, estoque e foto — **nenhum preço de componente**. Produto sem estoque aparece apagado com "sem estoque"; combo sem como ser montado fica "esgotado". WhatsApp não vende combo (fora do cardápio do bot; pedido é recusado).
 - **Carrinho**: cada combo montado é uma linha (`lineId`, `combo`, `comboSummary`, quantidade fixa 1). Funções de produto simples ignoram linhas de combo.
 - **Produção/expedição**: a cozinha prepara os **componentes**, não "o combo" — lista consolidada do kanban, romaneio, tela do pedido, impressora térmica e histórico do cliente mostram a composição. Ao criar telas que listem itens de pedido, incluir `components`.
-- **Pendente conhecido**: cancelar pedido não devolve estoque (vale para produtos simples e combos).
+- **Cancelar pedido devolve o estoque** (avulsos + componentes de combo) na mesma transação (`restoreOrderStock`), registra movimentação IN "Cancelamento do pedido #N", cancela o pagamento pendente e a conta a receber do faturado. A troca de status é reivindicada atomicamente: cancelamentos simultâneos devolvem uma vez. Pedido entregue não cancela; cancelado não reabre.
 
 ---
 

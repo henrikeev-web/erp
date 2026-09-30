@@ -48,6 +48,8 @@ export default function OrderActions({ order }: OrderActionsProps) {
     try {
       await axios.patch(`/api/pedidos/${order.id}`, { status: "CANCELLED", cancelReason: reason });
       router.refresh();
+    } catch (e) {
+      alert(axios.isAxiosError(e) && e.response?.data?.error ? String(e.response.data.error) : "Erro ao cancelar o pedido");
     } finally {
       setLoading(false);
     }

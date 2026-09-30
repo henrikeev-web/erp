@@ -394,3 +394,33 @@ export async function findOrCreateCustomerByPhone(
     return customer;
   });
 }
+
+
+/**
+ * Devolve ao estoque tudo que o pedido consumiu (produtos avulsos + componentes dos combos) e registra a
+ * movimentação de ENTRADA. Deve rodar DENTRO da transação do cancelamento, depois de a mudança de status ter
+ * sido "reivindicada" atomicamente (updateMany com status ≠ CANCELLED) — assim não devolve duas vezes.
+ * Produto sem controle de estoque é ignorado (nunca baixou).
+ */
+export async function restoreOrderStock(tx: any, orderId: string, unitId: string) {
+  const order = await tx.order.findFirst({
+    where: { id: orderId, unitId },
+    select: { number: true, items: { select: { productId: true, quantity: true, components: { select: { productId: true, quantity: true } } } } },
+  });
+  if (!order) return;
+
+  const back = new Map<string, number>();
+  for (const item of order.items) {
+    if (item.components.length > 0) for (const c of item.components) back.set(c.productId, (back.get(c.productId) ?? 0) + c.quantity);
+    else back.set(item.productId, (back.get(item.productId) ?? 0) + item.quantity);
+  }
+
+  for (const [productId, qty] of back) {
+    const stock = await tx.stockItem.findUnique({ where: { productId }, select: { id: true } });
+    if (!stock) continue;
+    await tx.stockItem.update({ where: { id: stock.id }, data: { quantity: { increment: qty } } });
+    await tx.stockMovement.create({
+      data: { stockItemId: stock.id, type: "IN", quantity: qty, reason: `Cancelamento do pedido #${order.number}`, reference: orderId },
+    });
+  }
+}
