@@ -3,6 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import { getCurrentUnit } from "@/lib/unit";
+import AnnouncementsHost from "@/components/admin/AnnouncementsHost";
 
 const STAFF_ROLES = ["SUPER_ADMIN", "ADMIN", "STAFF"];
 
@@ -21,6 +22,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <div className="flex h-screen bg-zinc-50 overflow-hidden">
       <AdminSidebar user={session.user} unitType={unit.type} />
+      {unit.type === "FRANCHISE" && <AnnouncementsHost />}
       <main className="flex-1 overflow-y-auto lg:ml-0">
         {children}
       </main>

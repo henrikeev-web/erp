@@ -156,6 +156,15 @@ Tela `/admin/financeiro` (abas: Resumo, A pagar, A receber, Recorrentes, Fornece
 
 ---
 
+## Rede de franquias: reposição, avisos, premiações e dashboard
+
+- **Reposição** (`/admin/reposicao`, só ADMIN de franquia; `/api/reposicao/*`): a franquia pede produtos à matriz. O pedido nasce **na matriz** (`unitId` da matriz) em nome do franqueado (`Customer FRANCHISEE.franchiseUnitId`), com `priceTier FRANCHISE`: preço `franchisePrice → resalePrice → price` (**franchisePrice é sigiloso**: está em `INTERNAL_PRODUCT_FIELDS` e nunca é copiado para a franquia nem devolvido em rota pública), sem cupom, sem pontos, sem combo. Pagamento faturado (7/14/21/28 dias → conta a receber na matriz) ou PIX. A matriz atende pelo fluxo normal (lista tem filtro/etiqueta "Reposição"). **Ao marcar ENTREGUE**, `receiveReplenishment` dá entrada no estoque da franquia (mapeia por `sourceProductId`; sincroniza o catálogo se o produto ainda não existir lá); idempotente via `Order.restockedAt` reivindicado na mesma transação; cancelar antes de entregar só devolve o estoque da matriz. Também há histórico, "repetir pedido", lançamentos (produtos da matriz com menos de 45 dias) e "mais pedidos pelas outras franquias" (só produto e nº de franquias — **nunca identifica a franquia**).
+- **Avisos** (`/admin/avisos` na matriz; `Announcement`): `POPUP` abre ao entrar no painel da franquia (uma vez **por usuário**, até "Entendi") e `NOTICE` fica no sino (`AnnouncementsHost`, montado em `layout.tsx` só para franquias). Para todas as franquias ou só as escolhidas; janela de datas; "lido por X de Y". `/api/meus-avisos` devolve só o que a unidade pode ver.
+- **Premiações** (`/admin/premiacoes`; `Award`/`AwardGrant`): meta por **nº de pedidos** ou **faturamento**, janela opcional, prêmio em texto. Conta pedidos da franquia **não cancelados**; a conquista é registrada uma vez por (premiação, franquia) no instante em que a meta foi cruzada (`computeProgress`, teste: `npx tsx scripts/test-awards.ts`) e gera **pop-up de parabéns** só para aquela franquia. Avaliada a cada pedido da franquia (`createOrder`, sem atrasar o pedido), ao criar/editar a premiação e em "Reavaliar agora". Editar a meta ou cancelar pedidos **não revoga**. A matriz marca "prêmio entregue". A franquia só vê o próprio progresso.
+- **Dashboard da rede** (`/admin/rede`, só admin da matriz; `/api/rede/dashboard`): por unidade, no período e comparado ao anterior de mesmo tamanho — vendas, pedidos, ticket, cancelamento, clientes novos, estoque baixo, financeiro em aberto/vencido e série diária. **Venda = pedido de consumidor não cancelado; a reposição (`priceTier FRANCHISE`) fica à parte** e não conta como venda da matriz nem da franquia.
+
+---
+
 ## Ambiente de demonstração (navegar por tudo sem tocar em produção)
 
 `prisma/demo.ts` popula um banco **local de teste** com dados de todas as funcionalidades (revendedor, combo, entregadores com relatório, financeiro, pedido cancelado, franquia "Ribeirão Preto" com usuários). **Recusa rodar** se `DATABASE_URL` não for local com nome contendo demo/dev/test.
@@ -726,6 +735,6 @@ Os produtos e categorias reais da Banguelas foram importados via `prisma/reset-c
 - [x] NFS-e mensal para pais de escola — integração direta GissOnline ABRASF 2.04 (SJRP)
 - [ ] NFCe por pedido via SEFAZ (estrutura `FiscalDocument` já existe no schema)
 - [ ] Fluxo n8n para WhatsApp bot (Evolution API + Gemini + endpoints `/api/whatsapp/*`)
-- [ ] Multi-unidade / franqueados — fase 0 feita (Unit + unitId + escopo das rotas); login Google feito; cadastro de franqueado/link/usuários e sync de catálogo feitos; falta dashboard da matriz, pedidos de reposição do franqueado, notificações/pop-ups e premiações
+- [ ] Multi-unidade / franqueados — fase 0 feita (Unit + unitId + escopo das rotas); login Google feito; cadastro de franqueado/link/usuários, sync de catálogo, reposição, avisos/pop-ups, premiações e dashboard da rede feitos
 - [ ] Segunda marca "Minuto Menu" (mesma stack, nova Brand no banco)
 - [ ] Deploy em VPS (PM2 + Nginx + Let's Encrypt) — volume persistente para `public/uploads/` + `print-agent` rodando como serviço separado

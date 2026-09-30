@@ -61,6 +61,7 @@ interface PrintToast {
 export default function PedidosPage() {
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
+  const [onlyRepo, setOnlyRepo] = useState(false);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [orders, setOrders] = useState<Order[]>([]);
@@ -75,6 +76,7 @@ export default function PedidosPage() {
     try {
       const params = new URLSearchParams();
       if (status) params.set("status", status);
+      if (onlyRepo) params.set("reposicao", "true");
       if (from) params.set("de", from);
       if (to) params.set("ate", to);
       // Com período definido, traz até 100 pedidos em vez da 1ª página de 20
@@ -85,7 +87,7 @@ export default function PedidosPage() {
     } finally {
       setLoading(false);
     }
-  }, [status, from, to]);
+  }, [status, from, to, onlyRepo]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -203,6 +205,8 @@ export default function PedidosPage() {
         ))}
       </div>
 
+      <label className="flex items-center gap-2 text-sm text-zinc-600 w-fit"><input type="checkbox" checked={onlyRepo} onChange={(e) => setOnlyRepo(e.target.checked)} /> Só reposições das franquias</label>
+
       {/* Período */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1.5">
@@ -284,6 +288,7 @@ export default function PedidosPage() {
                     {format(new Date(order.createdAt), "dd/MM HH:mm", { locale: ptBR })}
                     {order.payment && ` · ${paymentMethodLabel(order.payment.method)}${order.payment.method === "INVOICE" && order.invoiceDays ? ` ${order.invoiceDays}d` : ""}`}
                     {order.courier && <span className="ml-1.5 text-[11px] text-zinc-500">🛵 {order.courier.name}</span>}
+                    {order.priceTier === "FRANCHISE" && <span className="ml-1.5 text-[11px] px-1.5 py-0.5 rounded-full font-semibold bg-blue-100 text-blue-800">Reposição</span>}
                     {order.priceTier === "RESELLER" && <span className="ml-1.5 text-[11px] px-1.5 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-800">Revenda</span>}
                     {order.type === "PICKUP" && " · 🏪 Retirada"}
                   </p>

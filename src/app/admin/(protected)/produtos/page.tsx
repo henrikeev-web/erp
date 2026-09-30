@@ -23,7 +23,7 @@ interface Product {
   ageMin: number | null; ageMax: number | null;
   featured: boolean; active: boolean; frozen: boolean;
   categoryId: string | null;
-  resalePrice: number | null;
+  resalePrice: number | null; franchisePrice: number | null;
   barcode: string | null; ncm: string | null; packWeightG: number | null;
   packLengthCm: number | null; packWidthCm: number | null; packHeightCm: number | null;
   images: ProductImage[];
@@ -37,7 +37,7 @@ interface EditForm {
   name: string; description: string; price: string; priceOriginal: string;
   ageMin: string; ageMax: string; categoryId: string;
   featured: boolean; active: boolean; frozen: boolean;
-  resalePrice: string;
+  resalePrice: string; franchisePrice: string;
   barcode: string; ncm: string; packWeightG: string;
   packLengthCm: string; packWidthCm: string; packHeightCm: string;
 }
@@ -57,6 +57,7 @@ function productToForm(p: Product): EditForm {
     active: p.active,
     frozen: p.frozen,
     resalePrice: numStr(p.resalePrice),
+    franchisePrice: numStr(p.franchisePrice),
     barcode: p.barcode ?? "",
     ncm: p.ncm ?? "",
     packWeightG: numStr(p.packWeightG),
@@ -67,6 +68,8 @@ function productToForm(p: Product): EditForm {
 }
 
 export default function ProdutosPage() {
+  const [isHQ, setIsHQ] = useState(false);
+  useEffect(() => { axios.get("/api/unit").then(({ data }) => setIsHQ(data.type === "HQ")).catch(() => setIsHQ(false)); }, []);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [search, setSearch] = useState("");
@@ -212,6 +215,7 @@ export default function ProdutosPage() {
         active: form.active,
         frozen: form.frozen,
         resalePrice: form.resalePrice,
+        franchisePrice: form.franchisePrice,
         barcode: form.barcode,
         ncm: form.ncm,
         packWeightG: form.packWeightG,
@@ -504,6 +508,16 @@ export default function ProdutosPage() {
                   <p className="text-[11px] text-red-600">Atenção: o preço de revenda está maior que o preço de venda.</p>
                 )}
               </div>
+              )}
+
+              {isHQ && editProduct?.kind !== "COMBO" && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-3 space-y-2">
+                  <div>
+                    <p className="text-xs font-semibold text-blue-900">Preço para franqueado (R$)</p>
+                    <p className="text-[11px] text-blue-800">Preço da reposição: o que a franquia paga ao pedir este produto à matriz. Só o painel da franquia (administrador) e a matriz enxergam — nunca o cliente. Em branco = vale o preço de revenda e, sem ele, o de venda.</p>
+                  </div>
+                  <Input type="number" step="0.01" min="0" value={form.franchisePrice} onChange={e => setField("franchisePrice", e.target.value)} placeholder="Ex: 8,50" />
+                </div>
               )}
 
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 space-y-3">

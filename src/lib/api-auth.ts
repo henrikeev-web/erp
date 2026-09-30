@@ -93,3 +93,11 @@ export async function requireHQAdmin(): Promise<{ unit: Unit; userId: string; ro
   if (auth.unit.type !== "HQ") return NextResponse.json({ error: "Apenas a matriz gerencia as franquias" }, { status: 403 });
   return auth;
 }
+
+/** Administrador de uma FRANQUIA (pedidos de reposição, premiações da franquia). */
+export async function requireFranchiseAdmin(): Promise<{ unit: Unit; userId: string; role: string } | NextResponse> {
+  const auth = await requireStaff(["SUPER_ADMIN", "ADMIN"]);
+  if (auth instanceof NextResponse) return auth;
+  if (auth.unit.type !== "FRANCHISE") return NextResponse.json({ error: "Disponível apenas no painel de uma franquia" }, { status: 403 });
+  return auth;
+}

@@ -70,22 +70,24 @@ model Unit {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  brand              Brand            @relation(fields: [brandId], references: [id])
-  users              User[]
-  customers          Customer[]
-  orders             Order[]
-  products           Product[]
-  categories         Category[]
-  coupons            Coupon[]
-  deliveryZones      DeliveryZone[]
-  thematicMenus      ThematicMenu[]
-  bannerSlides       BannerSlide[]
-  suppliers          Supplier[]
-  costCenters        CostCenter[]
-  financialEntries   FinancialEntry[]
-  recurringEntries   RecurringEntry[]
-  couriers           Courier[]
-  franchiseeCustomer Customer?        @relation("FranchiseCustomer")
+  brand               Brand                @relation(fields: [brandId], references: [id])
+  users               User[]
+  customers           Customer[]
+  orders              Order[]
+  products            Product[]
+  categories          Category[]
+  coupons             Coupon[]
+  deliveryZones       DeliveryZone[]
+  thematicMenus       ThematicMenu[]
+  bannerSlides        BannerSlide[]
+  suppliers           Supplier[]
+  costCenters         CostCenter[]
+  financialEntries    FinancialEntry[]
+  recurringEntries    RecurringEntry[]
+  couriers            Courier[]
+  franchiseeCustomer  Customer?            @relation("FranchiseCustomer")
+  announcementTargets AnnouncementTarget[]
+  awardGrants         AwardGrant[]
 }
 
 // ─── USUÁRIOS ADMIN / STAFF ──────────────────────────────────────────────────
@@ -162,6 +164,7 @@ enum CustomerType {
 enum OrderPriceTier {
   RETAIL
   RESELLER
+  FRANCHISE // reposição: franqueado comprando da matriz
 }
 
 // ─── CLIENTES ────────────────────────────────────────────────────────────────
@@ -304,6 +307,7 @@ model Product {
   allergens       String?
   // Dados internos (logística/fiscal) — nunca expostos no cardápio público
   resalePrice     Float? // preço de revenda (fixo, igual p/ todos os revendedores) — NUNCA público
+  franchisePrice  Float? // preço de compra do FRANQUEADO na reposição — NUNCA público
   barcode         String?
   ncm             String?
   packWeightG     Int? // peso da embalagem, em gramas
@@ -407,6 +411,7 @@ model Order {
   priceTier         OrderPriceTier @default(RETAIL)
   invoiceDays       Int?
   createdBy         String?
+  restockedAt       DateTime? // reposição entregue: estoque da franquia já alimentado (evita entrar duas vezes)
   courierId         String?
   courierFee        Float? // custo do entregador gravado ao escolher o entregador (INTERNO)
   courierAssignedAt DateTime?
@@ -980,4 +985,104 @@ model OrderItemComponent {
 
   @@index([orderItemId])
   @@index([productId])
+}
+
+// ─── AVISOS E POP-UPS (matriz → franquias) ───────────────────────────────────
+
+enum AnnouncementKind {
+  POPUP // abre ao entrar no painel, uma vez por usuário, até confirmar
+  NOTICE // fica no sino de notificações
+}
+
+enum AnnouncementLevel {
+  INFO
+  SUCCESS
+  WARNING
+}
+
+model Announcement {
+  id        String            @id @default(cuid())
+  brandId   String
+  title     String
+  body      String            @db.Text
+  kind      AnnouncementKind  @default(NOTICE)
+  level     AnnouncementLevel @default(INFO)
+  startsAt  DateTime          @default(now())
+  endsAt    DateTime?
+  active    Boolean           @default(true)
+  allUnits  Boolean           @default(true) // false = só as franquias em targets
+  source    String            @default("MANUAL") // MANUAL | AWARD (gerado por premiação)
+  createdBy String?
+  createdAt DateTime          @default(now())
+
+  targets AnnouncementTarget[]
+  reads   AnnouncementRead[]
+
+  @@index([brandId, active])
+}
+
+model AnnouncementTarget {
+  announcementId String
+  unitId         String
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  unit         Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@id([announcementId, unitId])
+}
+
+// Leitura por USUÁRIO: cada pessoa da franquia vê o pop-up uma vez
+model AnnouncementRead {
+  id             String   @id @default(cuid())
+  announcementId String
+  userId         String
+  unitId         String
+  readAt         DateTime @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([unitId])
+}
+
+// ─── PREMIAÇÕES (metas para as franquias) ────────────────────────────────────
+
+enum AwardMetric {
+  ORDERS // quantidade de pedidos (não cancelados)
+  SALES // faturamento em R$ (pedidos não cancelados)
+}
+
+model Award {
+  id          String      @id @default(cuid())
+  brandId     String
+  name        String
+  description String?
+  metric      AwardMetric
+  threshold   Float // ex.: 1000 pedidos ou 10000 (R$)
+  startsAt    DateTime? // janela opcional da campanha; vazio = desde sempre
+  endsAt      DateTime?
+  reward      String? // o prêmio (texto livre)
+  active      Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+
+  grants AwardGrant[]
+
+  @@index([brandId, active])
+}
+
+model AwardGrant {
+  id          String    @id @default(cuid())
+  awardId     String
+  unitId      String
+  achievedAt  DateTime // momento em que a meta foi cruzada
+  value       Float // valor no momento da conquista
+  deliveredAt DateTime? // matriz marca quando entregou o prêmio
+  note        String?
+  createdAt   DateTime  @default(now())
+
+  award Award @relation(fields: [awardId], references: [id], onDelete: Cascade)
+  unit  Unit  @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@unique([awardId, unitId])
+  @@index([unitId])
 }

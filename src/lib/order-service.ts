@@ -4,6 +4,7 @@ import { createPaymentLink } from "./infinitepay";
 import { emitAdminEvent } from "./sse";
 import { addDaysUTC, todayUTC } from "./financeiro";
 import { validatePicks } from "./combo";
+import { evaluateAwards } from "./awards";
 import type { ComboOption, ComboPick } from "./combo";
 
 /**
@@ -21,7 +22,7 @@ export class OrderError extends Error {
 export type OrderSource = "STOREFRONT" | "WHATSAPP" | "ADMIN";
 
 export interface CreateOrderInput {
-  unit: { id: string; brandId: string };
+  unit: { id: string; brandId: string; type?: string };
   customerId: string;
   addressId?: string;
   deliveryZoneId?: string;
@@ -39,7 +40,7 @@ export interface CreateOrderInput {
    * Nível de preço. O storefront passa o nível da SESSÃO; o WhatsApp sempre RETAIL. BY_CUSTOMER só p/ fluxos
    * do painel (o operador escolhe o cliente e o preço acompanha o tipo dele). RESELLER exige cliente revendedor.
    */
-  pricing?: "RETAIL" | "RESELLER" | "BY_CUSTOMER";
+  pricing?: "RETAIL" | "RESELLER" | "FRANCHISE" | "BY_CUSTOMER";
   /** Faturado (paymentMethod INVOICE): prazo em dias, contado da data do pedido. */
   invoiceDays?: number;
   /** Desconto do operador sobre o pedido INTEIRO (itens + frete). PERCENT: 0 < x ≤ 100. VALUE: ≤ total. */
@@ -116,9 +117,12 @@ export async function createOrder(input: CreateOrderInput) {
 
     // ── Nível de preço (decidido no servidor; ver src/lib/pricing.ts) ─────
     const requested = input.pricing ?? "RETAIL";
-    const tier: "RETAIL" | "RESELLER" = requested === "BY_CUSTOMER" ? (customer.type === "RESELLER" ? "RESELLER" : "RETAIL") : requested;
+    const tier: "RETAIL" | "RESELLER" | "FRANCHISE" = requested === "BY_CUSTOMER"
+      ? (customer.type === "RESELLER" ? "RESELLER" : customer.type === "FRANCHISEE" ? "FRANCHISE" : "RETAIL")
+      : requested;
     if (tier === "RESELLER" && customer.type !== "RESELLER") throw new OrderError("Preço de revenda indisponível", 403);
-    if (tier === "RESELLER" && input.couponCode) throw new OrderError("Cupom não se aplica a pedidos de revenda");
+    if (tier === "FRANCHISE" && customer.type !== "FRANCHISEE") throw new OrderError("Preço de franqueado indisponível", 403);
+    if (tier !== "RETAIL" && input.couponCode) throw new OrderError("Cupom não se aplica a pedidos de revenda ou reposição");
     if (input.paymentMethod === "INVOICE" && customer.type === "RETAIL") throw new OrderError("Faturamento indisponível para este cliente", 403);
     const invoiceDays = input.paymentMethod === "INVOICE" ? input.invoiceDays : undefined;
     if (input.paymentMethod === "INVOICE" && !(Number.isInteger(invoiceDays) && invoiceDays! >= 1 && invoiceDays! <= 120)) {
@@ -132,8 +136,9 @@ export async function createOrder(input: CreateOrderInput) {
       const p = productMap.get(productId);
       if (!p) throw new OrderError("Produto indisponível");
       if (p.kind === "COMBO") throw new OrderError(`Monte o combo "${p.name}" escolhendo os itens`);
-      // Revenda: preço fixo do produto; sem preço de revenda cadastrado, vale o preço normal
-      const unitPrice = tier === "RESELLER" ? (p.resalePrice ?? p.price) : p.price;
+      // Revenda: preço fixo do produto (sem preço de revenda vale o normal).
+      // Reposição do franqueado: preço de franqueado, depois o de revenda, depois o normal.
+      const unitPrice = tier === "RESELLER" ? (p.resalePrice ?? p.price) : tier === "FRANCHISE" ? (p.franchisePrice ?? p.resalePrice ?? p.price) : p.price;
       const total = Math.round(unitPrice * quantity * 100) / 100;
       subtotal += total;
       return { productId, name: p.name, price: unitPrice, quantity, total, notes: notesByProduct.get(productId) };
@@ -141,6 +146,7 @@ export async function createOrder(input: CreateOrderInput) {
 
     // Combos: preço FIXO do combo (não há preço de revenda para combo); a escolha é validada no servidor
     for (const c of comboLines) {
+      if (tier === "FRANCHISE") throw new OrderError("Combos não fazem parte da reposição");
       const p = productMap.get(c.productId);
       if (!p) throw new OrderError("Combo indisponível");
       if (p.kind !== "COMBO" || !p.comboSize) throw new OrderError(`"${p.name}" não é um combo`);
@@ -364,6 +370,9 @@ export async function createOrder(input: CreateOrderInput) {
       console.error("InfinityPay link generation failed:", e);
     }
   }
+
+  // Premiações da rede: cada pedido de uma franquia reavalia as metas dela (não atrasa nem derruba o pedido)
+  if (unit.type === "FRANCHISE") evaluateAwards(unit.id).catch((e) => console.error("[awards]", e));
 
   emitAdminEvent({ unitId: unit.id, type: "order_new", orderId: order.id, orderNumber: order.number, customerName: order.customer.name });
 

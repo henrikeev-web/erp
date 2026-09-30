@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { emitAdminEvent } from "@/lib/sse";
 import { requireStaff, requireStaffOrAgent } from "@/lib/api-auth";
 import { restoreOrderStock } from "@/lib/order-service";
+import { receiveReplenishment } from "@/lib/replenishment";
 
 const STATUSES = ["PENDING", "CONFIRMED", "IN_PRODUCTION", "READY", "DISPATCHED", "DELIVERED", "CANCELLED"];
 
@@ -113,6 +114,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     // Só troca de entregador (sem mudar status): nada mais a fazer
     if (status === undefined) return NextResponse.json(order);
+
+    // Reposição entregue: o estoque da franquia é alimentado (idempotente; repetir "entregue" tenta de novo se falhou)
+    if (status === "DELIVERED") {
+      try { await receiveReplenishment(id, auth.unit.id); }
+      catch (e) {
+        console.error("[reposicao] entrada no estoque da franquia:", e);
+        return NextResponse.json({ error: "Pedido marcado como entregue, mas o estoque da franquia não foi atualizado. Marque como entregue novamente para tentar de novo." }, { status: 500 });
+      }
+    }
 
     // Faturado NÃO vira pago ao entregar: quem baixa é a conta a receber (financeiro)
     if (status === "DELIVERED" && order.payment && order.payment.method !== "INVOICE") {

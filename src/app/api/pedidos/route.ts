@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get("status");
   const de = searchParams.get("de");
   const ate = searchParams.get("ate");
+  const reposicao = searchParams.get("reposicao") === "true"; // só pedidos de reposição das franquias
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "20")));
 
@@ -54,6 +55,7 @@ export async function GET(req: NextRequest) {
   const where: Record<string, unknown> = {
     unitId: auth.unit.id,
     ...(status && { status }),
+    ...(reposicao && { priceTier: "FRANCHISE" }),
     ...(Object.keys(createdAt).length && { createdAt }),
   };
 

@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ShoppingBag, Users, Package, BarChart3,
   Settings, Tag, MapPin, LogOut, Menu, X, ChefHat,
-  FileText, Star, Bell, Layers, School, Wallet, Bike, Boxes, Store,
+  FileText, Star, Bell, Layers, School, Wallet, Bike, Boxes, Store, Network, Megaphone, Trophy, Truck,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
@@ -27,7 +27,11 @@ const NAV = [
   { href: "/admin/financeiro", icon: Wallet, label: "Financeiro", adminOnly: true },
   { href: "/admin/escola", icon: School, label: "Escola / NFS-e", hqOnly: true },
   { href: "/admin/fiscal", icon: FileText, label: "Fiscal" },
+  { href: "/admin/rede", icon: Network, label: "Dashboard da rede", adminOnly: true, hqOnly: true },
   { href: "/admin/franquias", icon: Store, label: "Franquias", adminOnly: true, hqOnly: true },
+  { href: "/admin/avisos", icon: Megaphone, label: "Avisos às franquias", adminOnly: true, hqOnly: true },
+  { href: "/admin/premiacoes", icon: Trophy, label: "Premiações" }, // matriz: só admin (ver página); franquia: todos
+  { href: "/admin/reposicao", icon: Truck, label: "Pedidos à matriz", adminOnly: true, franchiseOnly: true },
   { href: "/admin/zonas", icon: MapPin, label: "Zonas de entrega" },
   { href: "/admin/entregadores", icon: Bike, label: "Entregadores", adminOnly: true },
   { href: "/admin/configuracoes", icon: Settings, label: "Configurações" },
@@ -80,7 +84,7 @@ export default function AdminSidebar({ user, unitType }: AdminSidebarProps) {
         </div>
 
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
-          {NAV.filter((item) => (!("adminOnly" in item && item.adminOnly) || ["ADMIN", "SUPER_ADMIN"].includes(user.role ?? "")) && (!("hqOnly" in item && item.hqOnly) || unitType !== "FRANCHISE")).map(({ href, icon: Icon, label }) => {
+          {NAV.filter((item) => (!("adminOnly" in item && item.adminOnly) || ["ADMIN", "SUPER_ADMIN"].includes(user.role ?? "")) && (!("hqOnly" in item && item.hqOnly) || unitType !== "FRANCHISE") && (!("franchiseOnly" in item && item.franchiseOnly) || unitType === "FRANCHISE") && !(item.href === "/admin/premiacoes" && unitType !== "FRANCHISE" && !["ADMIN", "SUPER_ADMIN"].includes(user.role ?? ""))).map(({ href, icon: Icon, label }) => {
             const active = pathname === href || (href !== "/admin" && pathname.startsWith(href));
             return (
               <Link
