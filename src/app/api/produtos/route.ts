@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff, resolveUnit } from "@/lib/api-auth";
+import { PUBLIC_PRODUCT_OMIT, parseInternalFields } from "@/lib/product-fields";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -40,6 +41,8 @@ export async function GET(req: NextRequest) {
 
     const products = await prisma.product.findMany({
       where,
+      // Dados internos (código de barras, NCM, embalagem) só para o painel
+      omit: includeInactive ? undefined : PUBLIC_PRODUCT_OMIT,
       include: {
         images: { orderBy: { order: "asc" } },
         category: { select: { id: true, name: true, slug: true } },
@@ -62,6 +65,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
+    const internal = parseInternalFields(body);
+    if ("error" in internal) return NextResponse.json({ error: internal.error }, { status: 400 });
     const {
       categoryId, name, description, price, priceOriginal,
       sku, ageMin, ageMax, weight, servings, ingredients, allergens,
@@ -80,6 +85,7 @@ export async function POST(req: NextRequest) {
         sku, ageMin, ageMax, weight, servings, ingredients, allergens,
         frozen: frozen ?? true, active: active ?? true,
         featured: featured ?? false, order: order ?? 0,
+        ...internal.data,
       },
       include: { images: true, category: true, stockItem: true },
     });
@@ -91,7 +97,8 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(product, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === "P2002") return NextResponse.json({ error: "SKU ou código de barras já cadastrado" }, { status: 409 });
     console.error(error);
     return NextResponse.json({ error: "Erro ao criar produto" }, { status: 500 });
   }

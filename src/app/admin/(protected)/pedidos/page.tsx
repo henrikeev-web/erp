@@ -23,6 +23,18 @@ const STATUS_TABS = [
   { value: "CANCELLED", label: "Cancelados" },
 ];
 
+// Datas locais (YYYY-MM-DD) para o filtro de período
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return ymd(d); };
+
+const PERIOD_PRESETS = [
+  { label: "Hoje", range: () => [ymd(new Date()), ymd(new Date())] },
+  { label: "Ontem", range: () => [daysAgo(1), daysAgo(1)] },
+  { label: "7 dias", range: () => [daysAgo(6), ymd(new Date())] },
+  { label: "30 dias", range: () => [daysAgo(29), ymd(new Date())] },
+  { label: "Este mês", range: () => { const n = new Date(); return [ymd(new Date(n.getFullYear(), n.getMonth(), 1)), ymd(n)]; } },
+] as const;
+
 const ONLINE_METHODS = ["ONLINE_PIX", "ONLINE_CREDIT", "ONLINE_BOLETO"];
 
 interface Payment {
@@ -47,6 +59,8 @@ interface PrintToast {
 export default function PedidosPage() {
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [orders, setOrders] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -59,13 +73,17 @@ export default function PedidosPage() {
     try {
       const params = new URLSearchParams();
       if (status) params.set("status", status);
+      if (from) params.set("de", from);
+      if (to) params.set("ate", to);
+      // Com período definido, traz até 100 pedidos em vez da 1ª página de 20
+      if (from || to) params.set("limit", "100");
       const { data } = await axios.get(`/api/pedidos?${params}`);
       setOrders(data.orders);
       setTotal(data.total);
     } finally {
       setLoading(false);
     }
-  }, [status]);
+  }, [status, from, to]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -176,6 +194,38 @@ export default function PedidosPage() {
             {tab.label}
           </button>
         ))}
+      </div>
+
+      {/* Período */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <label className="text-xs font-medium text-zinc-500">De</label>
+          <Input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className="w-auto h-9" />
+          <label className="text-xs font-medium text-zinc-500">até</label>
+          <Input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className="w-auto h-9" />
+        </div>
+        <div className="flex gap-1">
+          {PERIOD_PRESETS.map((p) => (
+            <button
+              key={p.label}
+              onClick={() => { const [a, b] = p.range(); setFrom(a); setTo(b); }}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+            >
+              {p.label}
+            </button>
+          ))}
+          {(from || to) && (
+            <button onClick={() => { setFrom(""); setTo(""); }} className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-orange-600 hover:bg-orange-50">
+              Limpar
+            </button>
+          )}
+        </div>
+        {(from || to) && !loading && (
+          <span className="text-xs text-zinc-500">
+            {total} pedido{total !== 1 ? "s" : ""} no período
+            {total > orders.length ? ` (mostrando os ${orders.length} mais recentes)` : ""}
+          </span>
+        )}
       </div>
 
       {/* Search */}

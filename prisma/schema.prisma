@@ -275,6 +275,13 @@ model Product {
   servings      Int?
   ingredients   String?
   allergens     String?
+  // Dados internos (logística/fiscal) — nunca expostos no cardápio público
+  barcode       String?
+  ncm           String?
+  packWeightG   Int? // peso da embalagem, em gramas
+  packLengthCm  Float?
+  packWidthCm   Float?
+  packHeightCm  Float?
   frozen        Boolean  @default(true)
   active        Boolean  @default(true)
   featured      Boolean  @default(false)
@@ -291,6 +298,7 @@ model Product {
   unit                 Unit?                 @relation(fields: [unitId], references: [id])
 
   @@unique([unitId, sku])
+  @@unique([unitId, barcode])
   @@index([unitId])
 }
 

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUnit } from "@/lib/unit";
+import { PUBLIC_PRODUCT_OMIT } from "@/lib/product-fields";
 import MenuClient from "@/components/storefront/MenuClient";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ async function getMenuData() {
     }),
     prisma.product.findMany({
       where: { unitId: unit.id, active: true },
+      omit: PUBLIC_PRODUCT_OMIT, // o produto inteiro vai serializado para o navegador
       include: {
         images: { orderBy: { order: "asc" } },
         category: true,
@@ -37,6 +39,7 @@ async function getMenuData() {
         products: {
           include: {
             product: {
+              omit: PUBLIC_PRODUCT_OMIT,
               include: { images: { orderBy: { order: "asc" } }, stockItem: true },
             },
           },
