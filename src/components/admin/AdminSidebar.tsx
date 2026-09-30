@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ShoppingBag, Users, Package, BarChart3,
   Settings, Tag, MapPin, LogOut, Menu, X, ChefHat,
-  FileText, Star, Bell, Layers, School,
+  FileText, Star, Bell, Layers, School, Wallet,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,7 @@ const NAV = [
   { href: "/admin/fidelidade", icon: Star, label: "Fidelidade" },
   { href: "/admin/follow-up", icon: Bell, label: "Follow-up" },
   { href: "/admin/relatorios", icon: BarChart3, label: "Relatórios" },
+  { href: "/admin/financeiro", icon: Wallet, label: "Financeiro", adminOnly: true },
   { href: "/admin/escola", icon: School, label: "Escola / NFS-e" },
   { href: "/admin/fiscal", icon: FileText, label: "Fiscal" },
   { href: "/admin/zonas", icon: MapPin, label: "Zonas de entrega" },
@@ -30,7 +31,7 @@ const NAV = [
 ];
 
 interface AdminSidebarProps {
-  user: { name?: string | null; email?: string | null; image?: string | null };
+  user: { name?: string | null; email?: string | null; image?: string | null; role?: string };
 }
 
 export default function AdminSidebar({ user }: AdminSidebarProps) {
@@ -75,7 +76,7 @@ export default function AdminSidebar({ user }: AdminSidebarProps) {
         </div>
 
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
-          {NAV.map(({ href, icon: Icon, label }) => {
+          {NAV.filter((item) => !("adminOnly" in item && item.adminOnly) || ["ADMIN", "SUPER_ADMIN"].includes(user.role ?? "")).map(({ href, icon: Icon, label }) => {
             const active = pathname === href || (href !== "/admin" && pathname.startsWith(href));
             return (
               <Link

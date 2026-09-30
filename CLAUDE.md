@@ -89,6 +89,19 @@ Variáveis: `BASE_DOMAIN`, `AUTH_HOST`, `COOKIE_DOMAIN` (prod, `.banguelas.com.b
 
 ---
 
+## Financeiro (contas a pagar / a receber)
+
+Tela `/admin/financeiro` (abas: Resumo, A pagar, A receber, Recorrentes, Fornecedores, Centros de custo). **Só ADMIN/SUPER_ADMIN** (`requireStaff(["SUPER_ADMIN","ADMIN"])` nas APIs e guarda no servidor na página); STAFF não vê. Tudo por unidade.
+
+- **Modelos**: `FinancialEntry` (a pagar e a receber num só: `type` PAYABLE|RECEIVABLE; `status` OPEN|PAID|CANCELLED; "vencido" é calculado = OPEN com `dueDate` < hoje), `RecurringEntry` (modelo da recorrência), `Supplier`, `CostCenter`. `FinancialEntry.source` (MANUAL|RECURRING|ORDER|COURIER) + `sourceKey` (único por unidade) tornam a geração automática idempotente — usar para os repasses de entregador e pedidos faturados.
+- **Datas** são "só data" (`@db.Date`), aritmética **em UTC** (`src/lib/financeiro.ts`), e "hoje" é o dia em **America/Sao_Paulo** (`BUSINESS_TZ`), não o do servidor. Filtros de período de pedidos usam `-03:00`.
+- **Recorrência**: `every` + `period` (DAY|WEEK|MONTH|YEAR) — a UI expõe Semanal/Mensal/Anual/Personalizada (a cada N…). Cada cobrança é calculada a partir da data inicial (dia 31 mensal → último dia dos meses curtos, sem "grudar" no 28). `materializeRecurring(unitId)` gera até hoje + 60 dias, é idempotente (`@@unique([recurringId, dueDate])`) e roda em toda consulta de lançamentos/resumo — **não há cron**.
+- **Editar recorrência**: mudar valor/descrição/vínculos atualiza as cobranças em aberto de hoje em diante (sobrescreve edição individual); mudar frequência/datas ou pausar remove só as **estritamente futuras** em aberto e regenera. Pagas, vencidas e a que vence hoje não são tocadas.
+- **Regras**: lançamento pago fica travado (reabrir para editar); ocorrência de recorrência e lançamentos automáticos **não se excluem** (recriaria) — cancelar; só MANUAL não pago pode ser excluído. Fornecedor/centro de custo com histórico são desativados em vez de excluídos. Parcelamento: `amount` é o total, dividido igualmente com a última parcela absorvendo os centavos.
+- **Pendente**: visão consolidada da matriz (todas as unidades) virá com o dashboard das franquias; integrar repasse de entregadores (item 4) e faturamento de revendedores (item 6) via `source`/`sourceKey`.
+
+---
+
 ## Infraestrutura Docker
 
 O projeto roda inteiramente em Docker. Três containers definidos em `docker-compose.yml`:

@@ -70,16 +70,20 @@ model Unit {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  brand         Brand          @relation(fields: [brandId], references: [id])
-  users         User[]
-  customers     Customer[]
-  orders        Order[]
-  products      Product[]
-  categories    Category[]
-  coupons       Coupon[]
-  deliveryZones DeliveryZone[]
-  thematicMenus ThematicMenu[]
-  bannerSlides  BannerSlide[]
+  brand            Brand            @relation(fields: [brandId], references: [id])
+  users            User[]
+  customers        Customer[]
+  orders           Order[]
+  products         Product[]
+  categories       Category[]
+  coupons          Coupon[]
+  deliveryZones    DeliveryZone[]
+  thematicMenus    ThematicMenu[]
+  bannerSlides     BannerSlide[]
+  suppliers        Supplier[]
+  costCenters      CostCenter[]
+  financialEntries FinancialEntry[]
+  recurringEntries RecurringEntry[]
 }
 
 // ─── USUÁRIOS ADMIN / STAFF ──────────────────────────────────────────────────
@@ -171,13 +175,15 @@ model Customer {
   notifPromos   Boolean @default(false)
   notifReorder  Boolean @default(true)
 
-  brand       Brand             @relation(fields: [brandId], references: [id])
-  children    Child[]
-  addresses   CustomerAddress[]
-  orders      Order[]
-  loyaltyCard LoyaltyCard?
-  followUps   FollowUp[]
-  unit        Unit?             @relation(fields: [unitId], references: [id])
+  brand            Brand             @relation(fields: [brandId], references: [id])
+  children         Child[]
+  addresses        CustomerAddress[]
+  orders           Order[]
+  loyaltyCard      LoyaltyCard?
+  followUps        FollowUp[]
+  unit             Unit?             @relation(fields: [unitId], references: [id])
+  financialEntries FinancialEntry[]
+  recurringEntries RecurringEntry[]
 
   @@unique([unitId, phone])
   @@unique([unitId, cpf])
@@ -739,4 +745,134 @@ model NfseConfig {
   wsUrl         String   @default("https://ws-sjrp.giss.com.br/service-ws/nf/nfse-ws")
   wsHomologUrl  String   @default("https://ws-ficticio.giss.com.br/service-ws/nf/nfse-ws")
   updatedAt     DateTime @updatedAt
+}
+
+// ─── FINANCEIRO (contas a pagar / a receber) ─────────────────────────────────
+
+enum EntryType {
+  PAYABLE // a pagar
+  RECEIVABLE // a receber
+}
+
+enum EntryStatus {
+  OPEN
+  PAID
+  CANCELLED
+}
+
+// Origem do lançamento; sourceKey torna a geração automática idempotente
+enum EntrySource {
+  MANUAL
+  RECURRING
+  ORDER // pedido faturado (revendedor/franquia)
+  COURIER // repasse diário de entregador
+}
+
+enum RecurrenceUnit {
+  DAY
+  WEEK
+  MONTH
+  YEAR
+}
+
+model Supplier {
+  id        String   @id @default(cuid())
+  unitId    String
+  name      String
+  document  String? // CNPJ/CPF, só dígitos
+  phone     String?
+  email     String?
+  notes     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  unit             Unit             @relation(fields: [unitId], references: [id])
+  entries          FinancialEntry[]
+  recurringEntries RecurringEntry[]
+
+  @@unique([unitId, document])
+  @@index([unitId])
+}
+
+model CostCenter {
+  id        String   @id @default(cuid())
+  unitId    String
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  unit             Unit             @relation(fields: [unitId], references: [id])
+  entries          FinancialEntry[]
+  recurringEntries RecurringEntry[]
+
+  @@unique([unitId, name])
+  @@index([unitId])
+}
+
+model FinancialEntry {
+  id          String      @id @default(cuid())
+  unitId      String
+  type        EntryType
+  description String
+  amount      Float
+  dueDate     DateTime    @db.Date
+  status      EntryStatus @default(OPEN)
+  paidAt      DateTime?   @db.Date
+  paidAmount  Float?
+  payMethod   String?
+  notes       String?
+
+  supplierId   String?
+  customerId   String?
+  costCenterId String?
+  recurringId  String?
+  orderId      String?
+
+  installmentNumber Int?
+  installmentTotal  Int?
+
+  source    EntrySource @default(MANUAL)
+  sourceKey String? // ex.: "courier:<id>:2026-10-01"
+  createdBy String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  unit       Unit            @relation(fields: [unitId], references: [id])
+  supplier   Supplier?       @relation(fields: [supplierId], references: [id])
+  customer   Customer?       @relation(fields: [customerId], references: [id])
+  costCenter CostCenter?     @relation(fields: [costCenterId], references: [id])
+  recurring  RecurringEntry? @relation(fields: [recurringId], references: [id], onDelete: SetNull)
+
+  @@unique([unitId, sourceKey])
+  @@unique([recurringId, dueDate])
+  @@index([unitId, type, status, dueDate])
+}
+
+model RecurringEntry {
+  id          String         @id @default(cuid())
+  unitId      String
+  type        EntryType
+  description String
+  amount      Float
+  every       Int            @default(1)
+  period      RecurrenceUnit @default(MONTH)
+  startDate   DateTime       @db.Date // 1ª cobrança; as demais são calculadas a partir dela
+  endDate     DateTime?      @db.Date
+  active      Boolean        @default(true)
+  notes       String?
+
+  supplierId   String?
+  customerId   String?
+  costCenterId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  unit       Unit             @relation(fields: [unitId], references: [id])
+  supplier   Supplier?        @relation(fields: [supplierId], references: [id])
+  customer   Customer?        @relation(fields: [customerId], references: [id])
+  costCenter CostCenter?      @relation(fields: [costCenterId], references: [id])
+  entries    FinancialEntry[]
+
+  @@index([unitId, active])
 }

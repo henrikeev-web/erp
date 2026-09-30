@@ -24,7 +24,7 @@ const createOrderSchema = z.object({
   })).min(1),
 });
 
-// Lista de pedidos do painel. Filtros: status, de/ate (YYYY-MM-DD, inclusivo, fuso do servidor)
+// Lista de pedidos do painel. Filtros: status, de/ate (YYYY-MM-DD, inclusivo, horário de Brasília)
 export async function GET(req: NextRequest) {
   const auth = await requireStaff();
   if (auth instanceof NextResponse) return auth;
@@ -37,8 +37,9 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "20")));
 
   const createdAt: Record<string, Date> = {};
-  if (de) createdAt.gte = new Date(`${de}T00:00:00`);
-  if (ate) createdAt.lte = new Date(`${ate}T23:59:59.999`);
+  // Brasília (UTC-3, sem horário de verão): o dia do pedido não depende do fuso do servidor
+  if (de) createdAt.gte = new Date(`${de}T00:00:00-03:00`);
+  if (ate) createdAt.lte = new Date(`${ate}T23:59:59.999-03:00`);
 
   const where: Record<string, unknown> = {
     unitId: auth.unit.id,
