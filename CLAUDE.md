@@ -156,6 +156,21 @@ Tela `/admin/financeiro` (abas: Resumo, A pagar, A receber, Recorrentes, Fornece
 
 ---
 
+## Ambiente de demonstração (navegar por tudo sem tocar em produção)
+
+`prisma/demo.ts` popula um banco **local de teste** com dados de todas as funcionalidades (revendedor, combo, entregadores com relatório, financeiro, pedido cancelado, franquia "Ribeirão Preto" com usuários). **Recusa rodar** se `DATABASE_URL` não for local com nome contendo demo/dev/test.
+
+```bash
+docker exec erp-dev-db psql -U postgres -c "create database erp_demo"      # container postgres local de teste (porta 5433)
+export DATABASE_URL=postgresql://postgres:dev@localhost:5433/erp_demo
+npx prisma db push && npx tsx prisma/seed.ts && npx tsx prisma/demo.ts      # imprime os logins (senha demo1234)
+npx next build
+env DATABASE_URL=$DATABASE_URL NEXTAUTH_URL=http://localhost:3000 NEXTAUTH_SECRET=demo BASE_DOMAIN= AUTH_HOST= COOKIE_DOMAIN= npx next start -H 127.0.0.1 -p 3000
+```
+Acesso de fora: túnel SSH `ssh -L 3000:127.0.0.1:3000 usuario@servidor` e abrir `http://localhost:3000` (matriz) e `http://ribeirao.localhost:3000` (franquia; Chrome/Edge/Firefox resolvem `*.localhost`). As variáveis `BASE_DOMAIN`/`AUTH_HOST`/`COOKIE_DOMAIN` ficam vazias no demo (localhost).
+
+---
+
 ## Infraestrutura Docker
 
 O projeto roda inteiramente em Docker. Três containers definidos em `docker-compose.yml`:
