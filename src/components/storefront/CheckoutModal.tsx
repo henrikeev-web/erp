@@ -64,7 +64,7 @@ const PAYMENT_METHODS = [
 ];
 
 export default function CheckoutModal({ open, onClose, isReseller = false }: CheckoutModalProps) {
-  const { items, subtotal, total, clear, couponCode, discount, setCoupon, clearCoupon } = useCart();
+  const { items, subtotal, total, clear, couponCode, discount, freeDelivery, setCoupon, clearCoupon } = useCart();
   const { data: session } = useSession();
   const isLoggedIn = session?.user?.role === "CUSTOMER";
 
@@ -163,7 +163,7 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
         code: couponInput.trim().toUpperCase(),
         subtotal: subtotal(),
       });
-      setCoupon(data.code, data.discount);
+      setCoupon(data.code, data.discount, !!data.freeDelivery);
       setError("");
     } catch {
       setError("Cupom inválido ou expirado");
@@ -538,7 +538,7 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
                 </div>
                 {couponCode && (
                   <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                    ✓ Cupom <strong>{couponCode}</strong> aplicado — economize {formatCurrency(discount)}!
+                    ✓ Cupom <strong>{couponCode}</strong> aplicado — {freeDelivery ? "frete grátis!" : <>economize {formatCurrency(discount)}!</>}
                     <button onClick={clearCoupon} className="ml-1 text-red-400 hover:text-red-600">
                       <X className="w-3 h-3" />
                     </button>
@@ -572,7 +572,7 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
                 {orderType === "DELIVERY" && (
                   <div className="flex justify-between text-zinc-600">
                     <span>Entrega</span>
-                    <span>{deliveryFee > 0 ? formatCurrency(deliveryFee) : "Grátis"}</span>
+                    <span>{deliveryFee > 0 && !freeDelivery ? formatCurrency(deliveryFee) : "Grátis"}</span>
                   </div>
                 )}
                 {discount > 0 && (

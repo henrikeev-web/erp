@@ -74,6 +74,60 @@ export default function FranquiasClient() {
   );
 }
 
+// ── Escolha do que NÃO vai para a franquia (produtos e categorias da matriz) ──
+
+interface CatItem { id: string; name: string }
+interface ProdItem { id: string; name: string; categoryId: string | null; kind?: string }
+
+function CatalogPicker({ exProds, setExProds, exCats, setExCats }: { exProds: string[]; setExProds: (v: string[]) => void; exCats: string[]; setExCats: (v: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const [cats, setCats] = useState<CatItem[] | null>(null);
+  const [prods, setProds] = useState<ProdItem[]>([]);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!open || cats) return;
+    Promise.all([axios.get("/api/categorias?includeInactive=true"), axios.get("/api/produtos?includeInactive=true")])
+      .then(([c, p]) => { setCats(c.data); setProds(p.data); })
+      .catch(() => setFailed(true));
+  }, [open, cats]);
+
+  const toggle = (list: string[], set: (v: string[]) => void, id: string) => set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+  const total = exProds.length + exCats.length;
+  const groups = [...(cats ?? []).map((c) => ({ cat: c as CatItem | null, items: prods.filter((p) => p.categoryId === c.id) })), { cat: null, items: prods.filter((p) => !p.categoryId || !(cats ?? []).some((c) => c.id === p.categoryId)) }].filter((g) => g.cat || g.items.length);
+
+  return (
+    <div className="rounded-xl border border-zinc-200 p-3 space-y-2">
+      <button type="button" onClick={() => setOpen(!open)} className="text-sm text-orange-600 hover:underline">
+        {open ? "Ocultar" : "Escolher"} produtos e categorias que esta franquia NÃO vai receber{total ? ` (${exCats.length} categorias, ${exProds.length} produtos removidos)` : ""}
+      </button>
+      {open && (failed ? <p className="text-sm text-red-600">Não foi possível carregar o catálogo da matriz.</p> : !cats ? <p className="text-sm text-zinc-500">Carregando…</p> : (
+        <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+          <p className="text-[11px] text-zinc-500">Marque o que deve ficar de fora. Vale também para as sincronizações futuras (a franquia não recebe esses itens nem quando a matriz alterar o catálogo). Combos que usam um produto removido também não são copiados.</p>
+          {groups.map((g) => {
+            const catOut = !!g.cat && exCats.includes(g.cat.id);
+            return (
+              <div key={g.cat?.id ?? "sem"} className="border border-zinc-100 rounded-lg">
+                <label className="flex items-center gap-2 px-2.5 py-1.5 text-sm font-semibold bg-zinc-50 rounded-t-lg">
+                  {g.cat ? <input type="checkbox" checked={catOut} onChange={() => toggle(exCats, setExCats, g.cat!.id)} /> : <span className="w-3.5" />}
+                  <span className={catOut ? "line-through text-zinc-400" : ""}>{g.cat?.name ?? "Sem categoria"}</span>
+                  {catOut && <span className="text-[11px] font-normal text-red-600">categoria inteira removida</span>}
+                </label>
+                {g.items.map((p) => (
+                  <label key={p.id} className={`flex items-center gap-2 pl-7 pr-2.5 py-1 text-sm ${catOut ? "opacity-40" : ""}`}>
+                    <input type="checkbox" disabled={catOut} checked={catOut || exProds.includes(p.id)} onChange={() => toggle(exProds, setExProds, p.id)} />
+                    <span className={exProds.includes(p.id) || catOut ? "line-through text-zinc-400" : ""}>{p.name}{p.kind === "COMBO" ? " (combo)" : ""}</span>
+                  </label>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Cadastro completo: franquia + link + franqueado + usuários ───────────────
 
 function NewFranchiseModal({ onClose }: { onClose: () => void }) {
@@ -88,6 +142,8 @@ function NewFranchiseModal({ onClose }: { onClose: () => void }) {
   const [fDoc, setFDoc] = useState("");
   const [users, setUsers] = useState([{ name: "", email: "", role: "ADMIN" }]);
   const [copyCatalog, setCopyCatalog] = useState(true);
+  const [exProds, setExProds] = useState<string[]>([]);
+  const [exCats, setExCats] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState<Created | null>(null);
@@ -98,7 +154,7 @@ function NewFranchiseModal({ onClose }: { onClose: () => void }) {
   async function save() {
     setError(""); setSaving(true);
     try {
-      const { data } = await axios.post("/api/franquias", { name, slug, city, state, franchisee: { name: fName, phone: fPhone, email: fEmail || undefined, document: fDoc || undefined }, users, copyCatalog });
+      const { data } = await axios.post("/api/franquias", { name, slug, city, state, franchisee: { name: fName, phone: fPhone, email: fEmail || undefined, document: fDoc || undefined }, users, copyCatalog, excludedProductIds: copyCatalog ? exProds : [], excludedCategoryIds: copyCatalog ? exCats : [] });
       setDone(data);
     } catch (e) { setError(errMsg(e, "Erro ao cadastrar")); } finally { setSaving(false); }
   }
@@ -161,6 +217,7 @@ function NewFranchiseModal({ onClose }: { onClose: () => void }) {
       </div>
 
       <label className="flex items-center gap-2 text-sm text-zinc-700"><input type="checkbox" checked={copyCatalog} onChange={(e) => setCopyCatalog(e.target.checked)} /> Copiar o catálogo da matriz agora (produtos, combos e categorias; estoque zerado)</label>
+      {copyCatalog && <CatalogPicker exProds={exProds} setExProds={setExProds} exCats={exCats} setExCats={setExCats} />}
 
       {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
       <div className="flex justify-end gap-2">

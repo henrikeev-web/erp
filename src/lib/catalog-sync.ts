@@ -6,7 +6,8 @@ import { prisma } from "./prisma";
  * ligada ao original por sourceProductId/sourceCategoryId. A sincronização é idempotente e:
  *  - cria o que falta e atualiza o conteúdo (nome, descrição, faixa etária, ingredientes, categoria, combos…);
  *  - NUNCA toca em estoque, em preço de revenda, nem em preço que a franquia já personalizou (priceCustom);
- *  - se a matriz desativa um produto, desativa na franquia (reativar é decisão da franquia).
+ *  - se a matriz desativa um produto, desativa na franquia (reativar é decisão da franquia);
+ *  - não cria produtos/categorias listados em Unit.excludedProductIds/excludedCategoryIds (combo com componente removido também fica de fora).
  */
 
 export interface SyncResult {
@@ -42,14 +43,18 @@ export async function syncCatalogToUnit(hqUnitId: string, targetUnitId: string):
 
 async function doSync(hqUnitId: string, targetUnitId: string): Promise<SyncResult> {
   const out: SyncResult = { categories: { created: 0, updated: 0 }, products: { created: 0, updated: 0 }, combos: { created: 0, updated: 0, skipped: 0 } };
-  const target = await prisma.unit.findUnique({ where: { id: targetUnitId }, select: { id: true, brandId: true, type: true } });
+  const target = await prisma.unit.findUnique({ where: { id: targetUnitId }, select: { id: true, brandId: true, type: true, excludedProductIds: true, excludedCategoryIds: true } });
   if (!target || target.type !== "FRANCHISE") throw new Error("Unidade de destino inválida");
+  const exCats = new Set<string>(target.excludedCategoryIds ?? []);
+  const exProds = new Set<string>(target.excludedProductIds ?? []);
+  const isExcluded = (p: any) => exProds.has(p.id) || (p.categoryId != null && exCats.has(p.categoryId));
 
   // ── categorias ──
   const hqCats: any[] = await prisma.category.findMany({ where: { unitId: hqUnitId } });
   const tCats: any[] = await prisma.category.findMany({ where: { unitId: targetUnitId } });
   const catMap = new Map<string, string>(); // id da matriz -> id da franquia
   for (const c of hqCats) {
+    if (exCats.has(c.id)) continue; // categoria removida desta franquia
     const content = { name: c.name, imageUrl: c.imageUrl, ageMin: c.ageMin, ageMax: c.ageMax, order: c.order, active: c.active };
     let t = tCats.find((x) => x.sourceCategoryId === c.id) ?? tCats.find((x) => !x.sourceCategoryId && x.slug === c.slug);
     if (t) {
@@ -67,6 +72,7 @@ async function doSync(hqUnitId: string, targetUnitId: string): Promise<SyncResul
   const tProducts: any[] = await prisma.product.findMany({ where: { unitId: targetUnitId }, select: { id: true, sourceProductId: true, priceCustom: true, active: true } });
   const prodMap = new Map<string, string>();
   for (const p of hqProducts) {
+    if (isExcluded(p)) continue; // produto (ou sua categoria) removido desta franquia
     const t = tProducts.find((x) => x.sourceProductId === p.id);
     const categoryId = p.categoryId ? catMap.get(p.categoryId) ?? null : null;
     if (t) {
@@ -100,6 +106,7 @@ async function doSync(hqUnitId: string, targetUnitId: string): Promise<SyncResul
   const hqCombos: any[] = await prisma.product.findMany({ where: { unitId: hqUnitId, kind: "COMBO" }, include: { images: true, comboItems: true }, omit: { resalePrice: true } });
   const tCombos: any[] = await prisma.product.findMany({ where: { unitId: targetUnitId, kind: "COMBO" }, select: { id: true, sourceProductId: true, priceCustom: true } });
   for (const c of hqCombos) {
+    if (isExcluded(c)) continue;
     const items = c.comboItems.map((i: any, idx: number) => ({ productId: prodMap.get(i.productId), maxQty: i.maxQty, order: idx }));
     if (items.some((i: any) => !i.productId)) { out.combos.skipped++; continue; } // componente ainda não existe na franquia
     const categoryId = c.categoryId ? catMap.get(c.categoryId) ?? null : null;

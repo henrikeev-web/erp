@@ -38,6 +38,9 @@ export const franchiseSchema = z.object({
   }),
   users: z.array(userInputSchema).min(1, "Cadastre ao menos um usuário para a franquia"),
   copyCatalog: z.boolean().default(true),
+  /** Itens do catálogo da matriz que esta franquia não deve receber (valem também para as sincronizações futuras). */
+  excludedProductIds: z.array(z.string()).default([]),
+  excludedCategoryIds: z.array(z.string()).default([]),
 });
 
 export class FranchiseError extends Error {
@@ -65,6 +68,14 @@ export async function createFranchise(hq: { id: string; brandId: string }, input
     throw new FranchiseError("Já existe um cliente da matriz com o telefone do franqueado", 409);
   }
 
+  // Só vale o que é realmente do catálogo da matriz (ignora ids estranhos)
+  const [hqProds, hqCats] = await Promise.all([
+    input.excludedProductIds.length ? prisma.product.findMany({ where: { unitId: hq.id, id: { in: input.excludedProductIds } }, select: { id: true } }) : [],
+    input.excludedCategoryIds.length ? prisma.category.findMany({ where: { unitId: hq.id, id: { in: input.excludedCategoryIds } }, select: { id: true } }) : [],
+  ]);
+  const excludedProductIds = (hqProds as any[]).map((p) => p.id);
+  const excludedCategoryIds = (hqCats as any[]).map((c) => c.id);
+
   // Hash fora da transação (é lento e não deve segurar conexão)
   const users = await Promise.all(input.users.map(async (u) => {
     const pwd = tempPassword();
@@ -74,7 +85,7 @@ export async function createFranchise(hq: { id: string; brandId: string }, input
   let created: { unitId: string; customerId: string; users: CreatedUser[] };
   try {
     created = await (prisma as any).$transaction(async (tx: any) => {
-      const unit = await tx.unit.create({ data: { brandId: hq.brandId, type: "FRANCHISE", name: input.name, slug: input.slug, city: input.city || null, state: input.state || null } });
+      const unit = await tx.unit.create({ data: { brandId: hq.brandId, type: "FRANCHISE", name: input.name, slug: input.slug, city: input.city || null, state: input.state || null, excludedProductIds, excludedCategoryIds } });
       const customer = await tx.customer.create({
         data: {
           brandId: hq.brandId, unitId: hq.id, type: "FRANCHISEE", franchiseUnitId: unit.id,

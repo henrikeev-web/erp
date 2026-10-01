@@ -49,10 +49,10 @@ export default function CuponsPage() {
   useEffect(() => { load(); }, [load]);
 
   async function create() {
-    if (!form.code || !form.value) { setError("Código e valor são obrigatórios"); return; }
+    if (!form.code || (form.type !== "FREE_DELIVERY" && !form.value)) { setError(form.type === "FREE_DELIVERY" ? "Informe o código do cupom" : "Código e valor são obrigatórios"); return; }
     setSaving(true); setError("");
     try {
-      await axios.post("/api/cupons", form);
+      await axios.post("/api/cupons", form.type === "FREE_DELIVERY" ? { ...form, value: 0, maxDiscount: "" } : form);
       setShowForm(false);
       setForm(EMPTY_FORM);
       load();
@@ -169,7 +169,7 @@ export default function CuponsPage() {
               </div>
               <div className="col-span-2">
                 <label className="text-xs font-medium text-zinc-500">Descrição</label>
-                <Input value={form.description} onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))} className="mt-1" placeholder="Ex: 10% de desconto no primeiro pedido" />
+                <Input value={form.description} onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))} className="mt-1" placeholder={form.type === "FREE_DELIVERY" ? "Ex: Frete grátis em pedidos acima de R$ 100" : "Ex: 10% de desconto no primeiro pedido"} />
               </div>
               <div>
                 <label className="text-xs font-medium text-zinc-500">Tipo *</label>

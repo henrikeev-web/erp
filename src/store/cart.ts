@@ -27,6 +27,7 @@ interface CartStore {
   items: CartItem[];
   couponCode: string | null;
   discount: number;
+  freeDelivery: boolean; // cupom de frete grátis aplicado
   add: (product: CartProduct, quantity?: number) => "ok" | "stock_limit";
   remove: (productId: string) => void;
   addCombo: (product: CartProduct, picks: { productId: string; quantity: number }[], summary: string) => void;
@@ -35,7 +36,7 @@ interface CartStore {
   updateNotes: (productId: string, notes: string) => void;
   clear: () => void;
   syncPrices: (prices: Record<string, number>) => void;
-  setCoupon: (code: string, discount: number) => void;
+  setCoupon: (code: string, discount: number, freeDelivery?: boolean) => void;
   clearCoupon: () => void;
   subtotal: () => number;
   total: (deliveryFee: number) => number;
@@ -48,6 +49,7 @@ export const useCart = create<CartStore>()(
       items: [],
       couponCode: null,
       discount: 0,
+      freeDelivery: false,
 
       add: (product, quantity = 1) => {
         const maxQty = product.stock ?? Infinity;
@@ -119,7 +121,7 @@ export const useCart = create<CartStore>()(
         }));
       },
 
-      clear: () => set({ items: [], couponCode: null, discount: 0 }),
+      clear: () => set({ items: [], couponCode: null, discount: 0, freeDelivery: false }),
 
       // O carrinho fica no navegador (localStorage). Ao trocar de conta (varejo <-> revendedor) os preços
       // guardados ficam errados: reaplica os que o servidor enviou para a sessão atual.
@@ -132,17 +134,17 @@ export const useCart = create<CartStore>()(
             changed = true;
             return { ...i, product: { ...i.product, price: p } };
           });
-          return changed ? { items, couponCode: null, discount: 0 } : state;
+          return changed ? { items, couponCode: null, discount: 0, freeDelivery: false } : state;
         }),
 
-      setCoupon: (code, discount) => set({ couponCode: code, discount }),
-      clearCoupon: () => set({ couponCode: null, discount: 0 }),
+      setCoupon: (code, discount, freeDelivery = false) => set({ couponCode: code, discount, freeDelivery }),
+      clearCoupon: () => set({ couponCode: null, discount: 0, freeDelivery: false }),
 
       subtotal: () => get().items.reduce((sum, i) => sum + i.product.price * i.quantity, 0),
 
       total: (deliveryFee) => {
-        const { subtotal, discount } = get();
-        return Math.max(0, subtotal() - discount + deliveryFee);
+        const { subtotal, discount, freeDelivery } = get();
+        return Math.max(0, subtotal() - discount + (freeDelivery ? 0 : deliveryFee));
       },
 
       itemCount: () => get().items.reduce((sum, i) => sum + i.quantity, 0),

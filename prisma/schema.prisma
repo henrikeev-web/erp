@@ -70,6 +70,10 @@ model Unit {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Catálogo da matriz que esta franquia NÃO recebe (ids de Product/Category da matriz). Respeitado por toda sincronização.
+  excludedProductIds  String[]             @default([])
+  excludedCategoryIds String[]             @default([])
+
   brand               Brand                @relation(fields: [brandId], references: [id])
   users               User[]
   customers           Customer[]

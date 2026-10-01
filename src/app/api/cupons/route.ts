@@ -21,6 +21,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
+    if (!["PERCENTAGE", "FIXED", "FREE_DELIVERY"].includes(body.type)) return NextResponse.json({ error: "Tipo de cupom inválido" }, { status: 400 });
+    if (!body.code?.trim()) return NextResponse.json({ error: "Informe o código do cupom" }, { status: 400 });
+    const freeDelivery = body.type === "FREE_DELIVERY";
+    const value = freeDelivery ? 0 : parseFloat(body.value);
+    if (!Number.isFinite(value) || (!freeDelivery && value <= 0)) return NextResponse.json({ error: "Valor do cupom inválido" }, { status: 400 });
 
     const coupon = await prisma.coupon.create({
       data: {
@@ -29,9 +34,9 @@ export async function POST(req: NextRequest) {
         code: body.code.toUpperCase().trim(),
         description: body.description || null,
         type: body.type,
-        value: parseFloat(body.value),
+        value,
         minOrder: parseFloat(body.minOrder ?? 0),
-        maxDiscount: body.maxDiscount ? parseFloat(body.maxDiscount) : null,
+        maxDiscount: !freeDelivery && body.maxDiscount ? parseFloat(body.maxDiscount) : null,
         maxUses: body.maxUses ? parseInt(body.maxUses) : null,
         validFrom: body.validFrom ? new Date(body.validFrom) : new Date(),
         validTo: body.validTo ? new Date(body.validTo) : null,
