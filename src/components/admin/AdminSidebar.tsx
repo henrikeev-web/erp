@@ -106,7 +106,7 @@ export default function AdminSidebar({ user, unitType }: AdminSidebarProps) {
         </nav>
 
         <div className="px-3 py-3 border-t border-zinc-800">
-          <div className="flex items-center gap-2 px-2 py-2 mb-1 rounded-lg bg-zinc-800">
+          <Link href="/admin/conta" onClick={() => setOpen(false)} title="Minha conta e alterar senha" className="flex items-center gap-2 px-2 py-2 mb-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors">
             <div className="w-7 h-7 bg-zinc-700 rounded-full flex items-center justify-center text-xs font-bold text-zinc-300 shrink-0">
               {user.name?.[0]?.toUpperCase() ?? "A"}
             </div>
@@ -114,7 +114,7 @@ export default function AdminSidebar({ user, unitType }: AdminSidebarProps) {
               <p className="text-xs font-medium text-zinc-200 truncate">{user.name ?? "Admin"}</p>
               <p className="text-xs text-zinc-500 truncate">{user.email}</p>
             </div>
-          </div>
+          </Link>
           <button
             onClick={() => signOut({ callbackUrl: "/admin/login" })}
             className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-zinc-500 hover:bg-zinc-800 hover:text-red-400 transition-colors"

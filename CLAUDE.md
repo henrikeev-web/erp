@@ -229,10 +229,13 @@ Foi ensaiada antes numa cópia restaurada do backup (resultado: schema idêntico
 | Usuário | Perfil | Unidade | Observação |
 |---|---|---|---|
 | `admin@banguelas.com.br` | ADMIN | matriz | Usuário do seed. **Verificar se a senha ainda é a padrão do seed (`admin123`) e trocar** |
-| `everton@banguelas.com.br` | ADMIN | matriz (franqueadora) | Criado em 2026-09-30 com senha aleatória de 14 caracteres entregue ao dono uma vez; **trocar no 1º acesso** (ainda não há tela de troca de senha: redefinir via banco com hash bcrypt custo 10) |
+| `everton@banguelas.com.br` | ADMIN | matriz (franqueadora) | Criado em 2026-09-30 com senha aleatória de 14 caracteres entregue ao dono uma vez; **trocar no 1º acesso** em `/admin/conta` (menu lateral → clicar no nome do usuário) |
 | Franqueados | ADMIN/STAFF | cada franquia | Criados em `/admin/franquias` (senha provisória mostrada uma vez); login em `<slug>.banguelas.com.br/admin/login` |
 
 Criar usuário direto no banco (emergência): gerar senha e hash com `bcryptjs` (custo 10) e `INSERT INTO "User" (id,"unitId",name,email,"passwordHash",role,active,"createdAt","updatedAt")` com `unitId` da unidade desejada (`select id from "Unit" where slug='matriz'`). Use `docker exec -i` (com `-i`) ao passar SQL por stdin.
+
+### Troca de senha do painel
+`/admin/conta` (clicar no usuário no rodapé do menu) → `POST /api/conta/senha` — qualquer perfil de staff troca a **própria** senha, informando a atual. Regras em `src/lib/password-policy.ts` (teste: `npx tsx scripts/test-password.ts`): mínimo 10 caracteres, com letras e números, no máx. 72 bytes (limite do bcrypt), diferente da atual, sem conter o e-mail. 5 erros da senha atual bloqueiam por 15 min (em memória, processo único). Sessões já abertas (JWT) **continuam válidas** após a troca. Redefinir a senha de OUTRO usuário: franquias → `/admin/franquias` (matriz); demais casos, direto no banco (hash bcrypt custo 10).
 
 **Backups (no servidor, `/root/backups/`, modo 600)**: `producao-antes-da-migracao-20260930-172603.dump` e `producao-pre-go-20260930-190159.dump` (banco de produção antes da migração, formato `pg_dump -Fc`; restaurar com `pg_restore`), `coolify-envvars-antes.sql` (tabela de variáveis do Coolify antes da correção). Não há backup automático agendado — **criar rotina** (Coolify → banco → Backups).
 
