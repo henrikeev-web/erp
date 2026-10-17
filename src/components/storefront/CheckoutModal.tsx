@@ -126,6 +126,13 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
 
   function selectSavedAddress(addr: SavedAddress) {
     setSelectedSavedAddressId(addr.id);
+    if (!addr.deliveryZone) {
+      // Endereço salvo sem zona: confere de novo pelo CEP (a zona pode ter sido cadastrada depois)
+      axios.get(`/api/cep?cep=${addr.cep}`).then(({ data }) => {
+        if (!data.deliveryZone) return;
+        setAddress((prev) => (prev.cep === addr.cep ? { ...prev, deliveryZoneId: data.deliveryZone.id, deliveryFee: data.deliveryZone.fee ?? 0, zoneName: data.deliveryZone.name } : prev));
+      }).catch(() => {});
+    }
     setAddress({
       cep: addr.cep,
       street: addr.street,
@@ -308,21 +315,21 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
                   onClick={() => setOrderType("DELIVERY")}
                   className={`flex-1 py-3 rounded-xl border text-sm font-medium transition-all ${
                     orderType === "DELIVERY"
-                      ? "border-orange-500 bg-orange-50 text-orange-700"
+                      ? "border-[#F26C21] bg-[#F26C21] text-white font-bold shadow-md ring-2 ring-[#F26C21]/30"
                       : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
                   }`}
                 >
-                  🛵 Delivery
+                  {orderType === "DELIVERY" ? "✓ " : ""}🛵 Delivery
                 </button>
                 <button
                   onClick={() => setOrderType("PICKUP")}
                   className={`flex-1 py-3 rounded-xl border text-sm font-medium transition-all ${
                     orderType === "PICKUP"
-                      ? "border-orange-500 bg-orange-50 text-orange-700"
+                      ? "border-[#F26C21] bg-[#F26C21] text-white font-bold shadow-md ring-2 ring-[#F26C21]/30"
                       : "border-zinc-200 text-zinc-600 hover:border-zinc-300"
                   }`}
                 >
-                  🏪 Retirada
+                  {orderType === "PICKUP" ? "✓ " : ""}🏪 Retirada
                 </button>
               </div>
             </div>
@@ -379,10 +386,12 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
                           <p style={{ margin: "2px 0 0", fontSize: 12, color: "#78716c" }}>
                             {addr.street}, {addr.number} — {addr.neighborhood}
                           </p>
-                          {addr.deliveryZone && (
+                          {addr.deliveryZone || (selected && address.deliveryZoneId) ? (
                             <p style={{ margin: "2px 0 0", fontSize: 11, color: "#22c55e" }}>
-                              ✓ Taxa: {formatCurrency(addr.deliveryZone.fee)}
+                              ✓ Taxa: {formatCurrency(addr.deliveryZone ? addr.deliveryZone.fee : deliveryFee)}
                             </p>
+                          ) : (
+                            <p style={{ margin: "2px 0 0", fontSize: 11, color: "#dc2626" }}>Sem entrega para este endereço</p>
                           )}
                         </div>
                       </button>
@@ -480,7 +489,7 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
                 {onlinePayment && <div className="grid grid-cols-2 gap-2">
                   {PAYMENT_METHODS.filter(m => m.online).map((m) => (
                     <button key={m.value} onClick={() => setPaymentMethod(m.value)}
-                      className={`py-3 px-3 rounded-xl border text-sm font-medium transition-all text-left flex items-center gap-2 ${paymentMethod === m.value ? "border-orange-500 bg-orange-50 text-orange-700" : "border-zinc-200 text-zinc-600 hover:border-zinc-300"}`}>
+                      className={`py-3 px-3 rounded-xl border text-sm font-medium transition-all text-left flex items-center gap-2 ${paymentMethod === m.value ? "border-[#F26C21] bg-[#F26C21] text-white font-bold shadow-md ring-2 ring-[#F26C21]/30" : "border-zinc-200 text-zinc-600 hover:border-zinc-300"}`}>
                       <span>{m.icon}</span> {m.label}
                     </button>
                   ))}
@@ -489,7 +498,7 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
                 <div className="grid grid-cols-2 gap-2">
                   {PAYMENT_METHODS.filter(m => !m.online).map((m) => (
                     <button key={m.value} onClick={() => setPaymentMethod(m.value)}
-                      className={`py-3 px-3 rounded-xl border text-sm font-medium transition-all text-left flex items-center gap-2 ${paymentMethod === m.value ? "border-orange-500 bg-orange-50 text-orange-700" : "border-zinc-200 text-zinc-600 hover:border-zinc-300"}`}>
+                      className={`py-3 px-3 rounded-xl border text-sm font-medium transition-all text-left flex items-center gap-2 ${paymentMethod === m.value ? "border-[#F26C21] bg-[#F26C21] text-white font-bold shadow-md ring-2 ring-[#F26C21]/30" : "border-zinc-200 text-zinc-600 hover:border-zinc-300"}`}>
                       <span>{m.icon}</span> {m.label}
                     </button>
                   ))}
@@ -499,7 +508,7 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
                 <div className="space-y-2">
                   <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide pt-1">Faturar</p>
                   <button onClick={() => setPaymentMethod("INVOICE")}
-                    className={`w-full py-3 px-3 rounded-xl border text-sm font-medium transition-all text-left flex items-center gap-2 ${paymentMethod === "INVOICE" ? "border-orange-500 bg-orange-50 text-orange-700" : "border-zinc-200 text-zinc-600 hover:border-zinc-300"}`}>
+                    className={`w-full py-3 px-3 rounded-xl border text-sm font-medium transition-all text-left flex items-center gap-2 ${paymentMethod === "INVOICE" ? "border-[#F26C21] bg-[#F26C21] text-white font-bold shadow-md ring-2 ring-[#F26C21]/30" : "border-zinc-200 text-zinc-600 hover:border-zinc-300"}`}>
                     <span>🧾</span> Faturado — pagar depois
                   </button>
                   {paymentMethod === "INVOICE" && (
@@ -508,7 +517,7 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
                       <div className="grid grid-cols-4 gap-2">
                         {RESELLER_INVOICE_DAYS.map((d) => (
                           <button key={d} onClick={() => setInvoiceDays(d)}
-                            className={`py-2 rounded-xl border text-sm font-medium ${invoiceDays === d ? "border-orange-500 bg-orange-50 text-orange-700" : "border-zinc-200 text-zinc-600"}`}>
+                            className={`py-2 rounded-xl border text-sm font-medium ${invoiceDays === d ? "border-[#F26C21] bg-[#F26C21] text-white font-bold shadow-md ring-2 ring-[#F26C21]/30" : "border-zinc-200 text-zinc-600"}`}>
                             {d} dias
                           </button>
                         ))}
@@ -682,7 +691,7 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
                 } else if (step === "address") {
                   if (!showManualAddressForm && selectedSavedAddressId && selectedSavedAddressId !== "new") {
                     // Saved address selected — validate zone
-                    if (!address.deliveryZoneId) { setError("Este endereço não tem zona de entrega configurada"); return; }
+                    if (!address.deliveryZoneId) { setError("Ainda não entregamos neste endereço. Escolha outro endereço ou a opção Retirada."); return; }
                     setStep("payment");
                   } else {
                     if (!address.street || !address.number || !address.neighborhood) { setError("Preencha o endereço completo"); return; }
