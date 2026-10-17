@@ -297,7 +297,7 @@ export async function createOrder(input: CreateOrderInput) {
           },
         },
       },
-      include: { items: { include: { components: true } }, payment: true, customer: true, address: true },
+      include: { items: { include: { components: true } }, payment: true, customer: { omit: { passwordHash: true } }, address: true },
     });
 
     // ── Estoque: baixa atômica, sem deixar ficar negativo ─────────────────

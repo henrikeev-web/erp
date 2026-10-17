@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { scheduleCatalogSync } from "@/lib/catalog-sync";
 import { requireStaff } from "@/lib/api-auth";
+import { isImageUrl } from "@/lib/upload-url";
 
 async function ownProduct(id: string, unitId: string) {
   return prisma.product.findFirst({ where: { id, unitId }, select: { id: true } });
@@ -27,13 +28,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!(await ownProduct(id, auth.unit.id))) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
 
   const { url, alt, isMain } = await req.json();
+  if (!isImageUrl(url)) return NextResponse.json({ error: "URL de imagem inválida" }, { status: 400 });
 
   if (isMain) {
     await prisma.productImage.updateMany({ where: { productId: id }, data: { isMain: false } });
   }
 
   const image = await prisma.productImage.create({
-    data: { productId: id, url, alt: alt ?? null, isMain: isMain ?? false, order: 0 },
+    data: { productId: id, url, alt: typeof alt === "string" ? alt.slice(0, 200) : null, isMain: isMain ?? false, order: 0 },
   });
   scheduleCatalogSync(auth.unit);
   return NextResponse.json(image, { status: 201 });

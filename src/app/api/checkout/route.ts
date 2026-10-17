@@ -100,8 +100,20 @@ export async function POST(req: NextRequest) {
       invoiceDays: data.paymentMethod === "INVOICE" ? data.invoiceDays : undefined,
     });
 
-    // Resposta ao cliente sem campos internos do pedido
-    const { courierId: _c, courierFee: _cf, courierAssignedAt: _ca, createdBy: _cb, discountNote: _dn, ...safe } = order as Record<string, unknown>;
+    // Resposta ao cliente: SÓ o que o checkout precisa. O cliente do pedido pode ser uma conta existente
+    // (visitante informa o telefone de alguém), então CPF, e-mail, notas internas etc. nunca voltam aqui.
+    const o = order as Record<string, any>;
+    const safe = {
+      id: o.id, number: o.number, status: o.status, type: o.type, subtotal: o.subtotal, deliveryFee: o.deliveryFee,
+      discount: o.discount, total: o.total, couponCode: o.couponCode, notes: o.notes, scheduledTo: o.scheduledTo,
+      createdAt: o.createdAt, paymentLinkUrl: o.paymentLinkUrl, paymentLinkFailed: o.paymentLinkFailed,
+      customer: { name: o.customer?.name },
+      payment: o.payment ? { method: o.payment.method, status: o.payment.status, amount: o.payment.amount } : null,
+      items: (o.items ?? []).map((i: any) => ({
+        name: i.name, price: i.price, quantity: i.quantity, total: i.total, notes: i.notes,
+        components: (i.components ?? []).map((c: any) => ({ name: c.name, quantity: c.quantity })),
+      })),
+    };
     return NextResponse.json(safe, { status: 201 });
   } catch (error) {
     if (error instanceof OrderError) return NextResponse.json({ error: error.message }, { status: error.status });
