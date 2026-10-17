@@ -224,12 +224,20 @@ Foi ensaiada antes numa cópia restaurada do backup (resultado: schema idêntico
 
 Auditoria de segurança do sistema e integração da InfinitePay. Detalhes: **`docs/seguranca.md`** e **`docs/pagamentos-infinitepay.md`**.
 
-- **Pagamento online (InfinitePay)** com **uma InfiniteTag por unidade** (`Unit.infinitepayHandle`, Admin → Configurações). Confirmação por `payment_check` (webhook e página `/pedido/retorno`), idempotente. Sem tag ⇒ só pagamento na entrega. **Ainda sem tag cadastrada em produção.**
+- **Pagamento online (InfinitePay)** com **uma InfiniteTag por unidade** (`Unit.infinitepayHandle`, Admin → Configurações). Confirmação por `payment_check` (webhook e página `/pedido/retorno`), idempotente. Sem tag ⇒ só pagamento na entrega. **Tag da matriz cadastrada e checkout externo ativado em 2026-10-17; pagamento real funcionando.**
 - **Correções críticas**: webhook que aceitava qualquer pedido como pago; checkout público que devolvia hash de senha/CPF/e-mail do cliente; exclusão arbitrária de arquivos por URL de imagem/banner.
 - **Endurecimento**: dependências e Node 22; container sem root; rate limit; CSP e cabeçalhos; revogação imediata de sessão (`User.sessionVersion`); validação de entrada por lista de permitidos; NFS-e restrita ao domínio da GISS; compose sem senha embutida e portas só em `127.0.0.1`.
 - **Cupons**: agora dá para **editar** (lápis na lista). Datas do cupom valem o dia inteiro em Brasília.
 - **Produtos**: o botão **Novo produto** passou a funcionar (cria e segue em modo edição para adicionar fotos; estoque nasce em 0).
 - **Pendente**: verificação de telefone/e-mail no cadastro de cliente (precisa de canal de envio: WhatsApp via n8n ou SMTP); teste manual do login Google; backup agendado do banco; trocar senhas padrão/confirmar `NEXTAUTH_SECRET` forte em produção; `node-forge` sem correção (não explorável).
+
+### Correções de 2026-10-17 (tarde) — em produção, commit `93ef8bb`
+
+- **Login Google atrás do proxy** (`5a2994d`): redirecionamentos usam `publicOrigin()` (nunca `req.url`), senão iam para `https://localhost:3000`.
+- **"Sessão inválida" ao completar o cadastro Google** (`6ee3147`): `api/minha-conta/google/completar` lia o cookie `next-auth.session-token`, mas com `NEXTAUTH_URL` https o next-auth grava `__Secure-next-auth.session-token`. O nome agora segue a regra do next-auth (`COOKIE_DOMAIN` ou `NEXTAUTH_URL` https). `getToken` lê `req.cookies` (objeto), não o cabeçalho: passar um `Request` devolve `undefined`.
+- **Checkout** (`93ef8bb`): botões selecionados (Delivery/Retirada/pagamento) em laranja sólido com anel e ✓; endereço salvo sem zona reconfere o CEP e mostra "Sem entrega para este endereço".
+- **Pagamento: erros vistos em produção** (detalhes em `docs/pagamentos-infinitepay.md`): `404 external_checkout_not_enabled` (ligar o *Checkout externo* no app da InfinitePay) e `422 Total price must be greater than 1` (total do pedido abaixo de ~R$ 1,00, ex.: cupom de 99% em teste). A página da InfinitePay **não pode ser embutida em iframe** (`X-Frame-Options: SAMEORIGIN`, `frame-ancestors` só deles): o cliente é redirecionado.
+- **Pendente novo**: o servidor aceita delivery sem zona (taxa R$ 0) quando o endereço é digitado — cadastrar as zonas reais (hoje só a zona de teste de São Paulo) e decidir se `api/checkout` passa a exigir zona; avisar no checkout quando o pagamento online ficar abaixo de R$ 1,00; pedidos de teste #1–#3 (cupom TESTE99) ainda abertos.
 
 ---
 

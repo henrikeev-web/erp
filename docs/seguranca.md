@@ -37,7 +37,8 @@ Resumo da auditoria de 2026-10-17, do que foi corrigido, do que ficou pendente e
 - **`node-forge`** aparece no `npm audit` sem correção publicada (verificação de assinatura RSA). Não é explorável: o código só lê o nosso `.pfx` da NFS-e.
 - **CSP com `'unsafe-inline'`** em scripts e estilos (o Next e o front usam estilos inline). Remover exige nonces e renderização dinâmica.
 - **Rate limit em memória**: reinicia com o servidor e não é compartilhado entre processos. Hoje há um container só; com mais de um, trocar o `store` por Redis.
-- **Login com Google**: os redirecionamentos do fluxo são testados com produção simulada (`scripts/e2e-security.sh`), mas o OAuth com o Google em si não; após deploys que mexam em auth/CSP/Next, fazer um login real. (Em 2026-10-17 o upgrade do Next fez `req.url` virar `localhost:3000` atrás do proxy e quebrou o início do fluxo; corrigido com `publicOrigin`.)
+- **Login com Google**: os redirecionamentos do fluxo são testados com produção simulada (`scripts/e2e-security.sh`), mas o OAuth com o Google em si não; após deploys que mexam em auth/CSP/Next, fazer um login real. (Em 2026-10-17 o upgrade do Next fez `req.url` virar `localhost:3000` atrás do proxy e quebrou o início do fluxo; corrigido com `publicOrigin`. Também em 2026-10-17: o cadastro Google dava "Sessão inválida" porque `google/completar` buscava o cookie sem o prefixo `__Secure-` usado em https; corrigido, e o login completo foi confirmado em produção.)
+- **Delivery sem zona**: `POST /api/checkout` aceita endereço digitado sem zona de entrega (taxa R$ 0). Cadastrar as zonas reais e decidir se o servidor passa a recusar.
 - **Sem backup agendado do banco** (Coolify → banco → Backups).
 - Pedido **cancelado que recebe pagamento** não reabre: o log registra "Estornar manualmente".
 - A senha padrão do seed (`admin123`) só pode existir em desenvolvimento.

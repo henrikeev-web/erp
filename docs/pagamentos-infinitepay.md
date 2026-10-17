@@ -30,10 +30,13 @@ O webhook da InfinitePay **não tem assinatura**. Por isso o corpo é só uma in
 
 - **Gateway fora do ar ao criar o pedido**: o pedido existe sem link; o cliente vê o aviso "Não conseguimos gerar o link"; a equipe usa "Cobrar" em Pedidos (`POST /api/pedidos/[id]/pagamento`), que reenvia o link.
 - **Resposta de `/links` sem URL**: a documentação não descreve o corpo da resposta; o código aceita `url`, `checkout_url`, `link`, `payment_url` (https). Se nenhum vier, o log lista os campos recebidos — ajustar `extractLink` em `lib/infinitepay.ts`.
+- **`404 external_checkout_not_enabled`** (log `[pagamento] link de pagamento não gerado`): a conta da InfiniteTag não tem o *Checkout externo* ligado. Ativar em `https://app.infinitepay.io/external-checkout#configuracoes?enabled=true` com a conta dona da tag. O pedido fica salvo sem link; depois de ativar, "Cobrar" gera o link.
+- **`422 Total price must be greater than 1`**: total abaixo do mínimo da InfinitePay (aparenta ser R$ 1,00; pedidos de R$ 0,16 falharam). Em testes com cupom de desconto alto, mantenha o total ≥ R$ 1,00. O checkout ainda não avisa antes de criar o pedido.
+- **Não dá para embutir a página de pagamento** (iframe): `checkout.infinitepay.io` responde `X-Frame-Options: SAMEORIGIN` e `frame-ancestors 'self' *.infinitepay.io…`. O cliente é redirecionado e volta por `/pedido/retorno`. Pagamento embutido exigiria outra API/gateway.
 - **Pedido cancelado que recebeu pagamento**: não reabre; estornar manualmente no app da InfinitePay.
 
 ## Testes
 
 - `npx tsx scripts/test-infinitepay.ts` — itens fecham com o total, prova de pagamento, parsing da resposta.
 - `scripts/test-payment-e2e.ts` (dentro de `scripts/e2e-security.sh`) — pedido → link → webhook falso/pago a menos/pago → idempotência → pedido de outra unidade → pedido cancelado → gateway fora do ar, com a API da InfinitePay simulada.
-- **Falta** um pedido real de baixo valor para confirmar o formato da resposta de `/links` com uma InfiniteTag de verdade.
+- Link real gerado e pagamento aberto com a tag da matriz em 2026-10-17 (formato da resposta de `/links` confirmado).
