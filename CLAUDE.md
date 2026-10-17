@@ -10,13 +10,14 @@ Sistema integrado de **cardápio online + ERP** para a **Banguelas Papinhas e Nu
 
 | Tecnologia | Versão | Notas importantes |
 |------------|--------|-------------------|
-| Next.js | 16.2.9 | App Router, Turbopack. Leia `node_modules/next/dist/docs/` antes de qualquer código |
+| Next.js | 16.4.2 | App Router, Turbopack. Leia `node_modules/next/dist/docs/` antes de qualquer código |
 | React | 19.2.4 | — |
 | TypeScript | 5 | `noImplicitAny: false` necessário por causa do Prisma 7 |
 | Tailwind CSS | 4 | CSS custom properties, sem `tailwind.config.js` |
-| Prisma | 7 | **Breaking changes** — ver seção abaixo |
+| Prisma | 7.10 | **Breaking changes** — ver seção abaixo |
 | PostgreSQL | 16 | Via Docker em dev, VPS em produção |
-| next-auth | 4 | Dois CredentialsProviders: `credentials` (admin) e `customer-credentials`; JWT strategy |
+| next-auth | 4.24 | Dois CredentialsProviders: `credentials` (admin) e `customer-credentials`; JWT strategy (7 dias) com conferência no banco a cada request — ver "Autenticação" |
+| Node.js | 22 | Dockerfile em `node:22-alpine` (Node 20 saiu de suporte); o app roda como usuário `node`, não root |
 | Zod | 4 | Usa `.issues` (não `.errors` como v3) |
 | Zustand | 5 | Carrinho persistido em localStorage |
 | Recharts | 3 | Gráficos no dashboard e relatórios — componentes exigem `"use client"` |
@@ -31,6 +32,7 @@ Sistema integrado de **cardápio online + ERP** para a **Banguelas Papinhas e Nu
 - **Adapter obrigatório** — `@prisma/adapter-pg` + `pg` para qualquer conexão direta
 - **`noImplicitAny: false`** no `tsconfig.json` — arquivos gerados têm `// @ts-nocheck`
 - Para executar seed: `npx tsx prisma/seed.ts` (não ts-node)
+- **`prisma db push --accept-data-loss` é bloqueado pelo Prisma 7.10 quando chamado por um agente de IA** (exige consentimento explícito do dono). Em bancos novos/descartáveis use `prisma db push` simples; migração destrutiva em dado real só com autorização do dono.
 - **Sempre rodar `npx prisma generate` após mudar o schema** — apagar `.next/` e reiniciar o servidor dev; sem isso o Next.js usa chunks em cache com o client antigo e todas as rotas que usam os novos modelos retornam 500
 - **Nunca usar `$queryRaw`** para queries que retornam `COUNT(*)` — PostgreSQL retorna `bigint` que não serializa para JSON. Usar `findMany` + agrupamento no servidor.
 - **`WhatsAppSession` e outros modelos novos** — acessar via `(prisma.whatsAppSession as any)` por causa do `// @ts-nocheck` no client gerado
@@ -55,6 +57,21 @@ const prisma = new (PrismaClient as any)({ adapter });
   ```
 - **`searchParams` em Server Components também é `Promise`** — idem.
 - **`images: { unoptimized: true }`** configurado em `next.config.ts` — `<Image>` renderiza como `<img>` direto sem passar pelo otimizador interno (`/_next/image`). Necessário porque o otimizador buscava arquivos internamente no Next.js (porta 3000), que não enxerga uploads novos sem restart. As imagens já chegam otimizadas (WebP via Sharp no upload).
+
+---
+
+## Segurança — regras do projeto
+
+Auditoria completa em **`docs/seguranca.md`** (achados, medidas, pendências, runbook de deploy). Regras para todo código novo:
+
+- **Nunca repasse o corpo da requisição ao Prisma.** Valide por **lista de campos permitidos**: `src/lib/sanitize.ts` (`parseProductBasics`, `parseCoupon`, `parseStockMove`) ou zod com `.max()` em todo texto. `usedCount`, `unitId`, `sourceProductId`, `priceCustom`, `kind` etc. nunca vêm do cliente.
+- **Rota pública nunca devolve o registro inteiro** de cliente/pedido: monte a resposta campo a campo (ver `api/checkout`). `createOrder` já omite `passwordHash`.
+- **Imagem/banner/arquivo**: URLs só por `src/lib/upload-url.ts` (`isImageUrl`, `isSafeLink`, `uploadFilePath`). Apagar arquivo só em caminho validado e sem outra referência (as franquias compartilham as fotos da matriz).
+- **Rota pública que cria dados ou chama serviço externo tem rate limit** (`src/lib/rate-limit.ts`: `hit`, `clientIp`, `tooManyRequests`). O IP vem do `X-Forwarded-For` escrito pelo proxy confiável (`TRUSTED_PROXY_HOPS`, padrão 1 = Traefik).
+- **Sessão**: `getServerSession` já devolve a sessão conferida no banco (usuário desativado/apagado ou `sessionVersion` diferente ⇒ sem `user`). Papel e unidade vêm do banco. Quem altera senha, perfil ou ativo de um usuário deve incrementar `User.sessionVersion`.
+- **Dinheiro só com prova do gateway** (ver "Gateway de Pagamento").
+- **Cabeçalhos/CSP** ficam em `next.config.ts`. O único recurso externo do front é o Google Fonts; novo domínio externo exige ajustar a CSP.
+- **Testes**: `npx next build && bash scripts/e2e-security.sh` (banco descartável + servidor + Chromium/Firefox em container Playwright) deve terminar com `TUDO OK` antes de publicar mudança de auth, checkout, pagamento, upload ou cabeçalhos. Scripts unitários: `scripts/test-{sanitize,upload-url,rate-limit,infinitepay,password,combo,awards}.ts`.
 
 ---
 
@@ -189,7 +206,7 @@ A "segunda etapa" (branch `feat/planejamento`, mergeada na `main` no commit `b3a
 - **Combos personalizados**, **pedido manual** com desconto, **financeiro** (a pagar/receber, recorrência, fornecedores, centros de custo), **entregadores** (pagos por entrega, relatório, conta a pagar diária), **campos internos do produto** (código de barras, NCM, peso/dimensões), **revendedores** (preço de revenda sigiloso, faturamento por pedido), **filtro por período** nos pedidos e **cancelamento devolvendo estoque**.
 - **Franquias**: cadastro do franqueado com link e usuários, dashboard da rede, reposição (pedidos à matriz, histórico, repetir, lançamentos, mais pedidos), avisos/pop-ups, premiações, sincronização de catálogo e preço próprio.
 - Detalhes de cada módulo estão nas seções acima (Multi-unidade, Revendedores, Franquias, Combos, Entregadores, Financeiro, Rede).
-- **Pendente da etapa**: verificação de assinatura do webhook InfinityPay (a posteriori); teste dos pop-ups em navegador real; DNS curinga + certificado para as franquias; integração com InfinityPay em produção.
+- **Pendente da etapa**: teste dos pop-ups em navegador real; DNS curinga + certificado para as franquias. (Webhook da InfinitePay verificado e integração de pagamento: feitos em 2026-10-17, ver abaixo.)
 
 ### Migração do banco de produção (2026-09-30)
 O banco antigo não tinha `unitId`. Aplicada em 3 passos, numa única transação, com o app parado (scripts em `docs/migracao-multiunidade/`):
@@ -199,6 +216,19 @@ O banco antigo não tinha `unitId`. Aplicada em 3 passos, numa única transaçã
 Foi ensaiada antes numa cópia restaurada do backup (resultado: schema idêntico ao final, 93 produtos/12 clientes/1 usuário/1 zona preservados). **Não use `prisma db push` para migrar um banco antigo**: ele pediria para apagar dados.
 **Atenção**: o `CMD` do Dockerfile roda `npx prisma db push && npm start`. Se o schema mudar de forma destrutiva, o deploy pode falhar ou pedir confirmação — migre o banco à mão antes de subir.
 **Rollback**: restaurar o dump `producao-pre-go-20260930-190159.dump` e redeployar o commit `d41e18c`.
+
+---
+
+## Atualização 2026-10-17 — segurança e pagamento online (em produção, commit `7848096`; depois `7cb10b6`)
+
+Auditoria de segurança do sistema e integração da InfinitePay. Detalhes: **`docs/seguranca.md`** e **`docs/pagamentos-infinitepay.md`**.
+
+- **Pagamento online (InfinitePay)** com **uma InfiniteTag por unidade** (`Unit.infinitepayHandle`, Admin → Configurações). Confirmação por `payment_check` (webhook e página `/pedido/retorno`), idempotente. Sem tag ⇒ só pagamento na entrega. **Ainda sem tag cadastrada em produção.**
+- **Correções críticas**: webhook que aceitava qualquer pedido como pago; checkout público que devolvia hash de senha/CPF/e-mail do cliente; exclusão arbitrária de arquivos por URL de imagem/banner.
+- **Endurecimento**: dependências e Node 22; container sem root; rate limit; CSP e cabeçalhos; revogação imediata de sessão (`User.sessionVersion`); validação de entrada por lista de permitidos; NFS-e restrita ao domínio da GISS; compose sem senha embutida e portas só em `127.0.0.1`.
+- **Cupons**: agora dá para **editar** (lápis na lista). Datas do cupom valem o dia inteiro em Brasília.
+- **Produtos**: o botão **Novo produto** passou a funcionar (cria e segue em modo edição para adicionar fotos; estoque nasce em 0).
+- **Pendente**: verificação de telefone/e-mail no cadastro de cliente (precisa de canal de envio: WhatsApp via n8n ou SMTP); teste manual do login Google; backup agendado do banco; trocar senhas padrão/confirmar `NEXTAUTH_SECRET` forte em produção; `node-forge` sem correção (não explorável).
 
 ---
 
@@ -213,7 +243,7 @@ Foi ensaiada antes numa cópia restaurada do backup (resultado: schema idêntico
 | Site (loja + admin) | `https://cardapio.banguelas.com.br` (matriz). Painel: `/admin/login`; cliente: `/minha-conta/login` |
 | Franquias | `https://<slug>.banguelas.com.br` — **ainda não há DNS curinga** `*.banguelas.com.br`; adicionar cada domínio no Coolify ou criar o curinga + certificado |
 | Coolify (painel) | `http://<IP-do-servidor>:8000` → app **ERP Banguelas** (uuid `hmi9i2v07jvsk541083ib516`, repo `henrikeev-web/erp`, branch `main`, Dockerfile) |
-| Deploy | **Manual** (o push na `main` NÃO dispara sozinho): botão Deploy no Coolify, ou API `GET /api/v1/deploy?uuid=<uuid>` com token |
+| Deploy | **Manual** (o push na `main` NÃO dispara sozinho): botão Deploy no Coolify, ou API `GET /api/v1/deploy?uuid=<uuid>` com token temporário. Runbook (backup → deploy → validação) em `docs/seguranca.md`. Acesso de leitura à produção (`docker exec` no banco) exige permissão explícita do dono |
 | API do Coolify | `http://127.0.0.1:8000/api/v1` (token criado em Keys & Tokens → API Tokens, com `read/write/deploy`; **apague ao terminar**). Gotcha: `/envs` dá 500 se alguma variável estiver gravada sem criptografia no banco do Coolify (já corrigido em 2026-09-30) |
 | Container do app | `hmi9i2v07jvsk541083ib516-<id>` (muda a cada deploy); logs: `docker logs -f $(docker ps --format '{{.Names}}' \| grep hmi9i)` |
 | Banco de produção | container `el1sceqzhimndmzyxanlb2l7` (postgres:16-alpine), usuário `erp`, banco `banguelas_erp`, sem porta pública. Acesso: `docker exec -it el1sceqzhimndmzyxanlb2l7 psql -U erp -d banguelas_erp`. A senha está na `DATABASE_URL` do app no Coolify |
@@ -223,26 +253,26 @@ Foi ensaiada antes numa cópia restaurada do backup (resultado: schema idêntico
 | Ambiente de teste local | container `erp-dev-db` (porta 5433, usuário `postgres`, senha `dev`), bancos `erp_dev`, `erp_demo` (demo) e `erp_prodcopy` (cópia do ensaio da migração; pode apagar). Só local |
 
 **Variáveis de ambiente do app em produção (Coolify → ERP Banguelas → Environment Variables)**, todas *runtime* (sem *buildtime*, exceto as três `NEXTAUTH_*`/`NIXPACKS_*` que já existiam):
-`DATABASE_URL`, `NEXTAUTH_URL` (`https://cardapio.banguelas.com.br`), `NEXTAUTH_SECRET`, `BASE_DOMAIN` (`banguelas.com.br`), `AUTH_HOST` (`cardapio.banguelas.com.br`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `WHATSAPP_API_KEY`, `PRINT_AGENT_SECRET`, `NIXPACKS_NODE_VERSION`. Variável nova só vale depois de novo deploy. O Coolify cria cópias "preview" de cada variável (não usadas). **Ainda não definidas**: `COOKIE_DOMAIN` (`.banguelas.com.br`, só quando houver franquias com sessão compartilhada), `INFINITEPAY_HANDLE`, `WAREHOUSE_LAT/LNG`, `NFSE_CERT_*` (conferir se o app de produção já as tinha antes de mexer).
+`DATABASE_URL`, `NEXTAUTH_URL` (`https://cardapio.banguelas.com.br`), `NEXTAUTH_SECRET`, `BASE_DOMAIN` (`banguelas.com.br`), `AUTH_HOST` (`cardapio.banguelas.com.br`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `WHATSAPP_API_KEY`, `PRINT_AGENT_SECRET`, `NIXPACKS_NODE_VERSION` (sem efeito com Dockerfile). Opcionais: `TRUSTED_PROXY_HOPS` (nº de proxies confiáveis à frente do app, padrão 1), `INFINITEPAY_HANDLE` (tag padrão só da matriz; o normal é cadastrar a tag da unidade no painel). Variável nova só vale depois de novo deploy. O Coolify cria cópias "preview" de cada variável (não usadas). **Ainda não definidas**: `COOKIE_DOMAIN` (`.banguelas.com.br`, só quando houver franquias com sessão compartilhada), `INFINITEPAY_HANDLE`, `WAREHOUSE_LAT/LNG`, `NFSE_CERT_*` (conferir se o app de produção já as tinha antes de mexer).
 
 **Usuários do painel (produção)**
 | Usuário | Perfil | Unidade | Observação |
 |---|---|---|---|
-| `admin@banguelas.com.br` | ADMIN | matriz | Usuário do seed. **Verificar se a senha ainda é a padrão do seed (`admin123`) e trocar** |
+| `admin@banguelas.com.br` | ADMIN | matriz | Usuário do seed. A senha padrão (`admin123`) só pode existir em desenvolvimento; em produção ela foi/deve ser trocada |
 | `everton@banguelas.com.br` | ADMIN | matriz (franqueadora) | Criado em 2026-09-30 com senha aleatória de 14 caracteres entregue ao dono uma vez; **trocar no 1º acesso** em `/admin/conta` (menu lateral → clicar no nome do usuário) |
 | Franqueados | ADMIN/STAFF | cada franquia | Criados em `/admin/franquias` (senha provisória mostrada uma vez); login em `<slug>.banguelas.com.br/admin/login` |
 
 Criar usuário direto no banco (emergência): gerar senha e hash com `bcryptjs` (custo 10) e `INSERT INTO "User" (id,"unitId",name,email,"passwordHash",role,active,"createdAt","updatedAt")` com `unitId` da unidade desejada (`select id from "Unit" where slug='matriz'`). Use `docker exec -i` (com `-i`) ao passar SQL por stdin.
 
 ### Troca de senha do painel
-`/admin/conta` (clicar no usuário no rodapé do menu) → `POST /api/conta/senha` — qualquer perfil de staff troca a **própria** senha, informando a atual. Regras em `src/lib/password-policy.ts` (teste: `npx tsx scripts/test-password.ts`): mínimo 10 caracteres, com letras e números, no máx. 72 bytes (limite do bcrypt), diferente da atual, sem conter o e-mail. 5 erros da senha atual bloqueiam por 15 min (em memória, processo único). Sessões já abertas (JWT) **continuam válidas** após a troca. Redefinir a senha de OUTRO usuário: franquias → `/admin/franquias` (matriz); demais casos, direto no banco (hash bcrypt custo 10).
+`/admin/conta` (clicar no usuário no rodapé do menu) → `POST /api/conta/senha` — qualquer perfil de staff troca a **própria** senha, informando a atual. Regras em `src/lib/password-policy.ts` (teste: `npx tsx scripts/test-password.ts`): mínimo 10 caracteres, com letras e números, no máx. 72 bytes (limite do bcrypt), diferente da atual, sem conter o e-mail. 5 erros da senha atual bloqueiam por 15 min (em memória, processo único). A troca **encerra todas as sessões abertas** do usuário (`User.sessionVersion`), inclusive a atual: a tela sai e pede novo login. Reset de senha, desativação e troca de perfil pela matriz também encerram as sessões. Redefinir a senha de OUTRO usuário: franquias → `/admin/franquias` (matriz); demais casos, direto no banco (hash bcrypt custo 10).
 
-**Backups (no servidor, `/root/backups/`, modo 600)**: `producao-antes-da-migracao-20260930-172603.dump` e `producao-pre-go-20260930-190159.dump` (banco de produção antes da migração, formato `pg_dump -Fc`; restaurar com `pg_restore`), `coolify-envvars-antes.sql` (tabela de variáveis do Coolify antes da correção). Não há backup automático agendado — **criar rotina** (Coolify → banco → Backups).
+**Backups (no servidor, `/root/backups/`, modo 600)**: `producao-antes-da-migracao-20260930-172603.dump` e `producao-pre-go-20260930-190159.dump` (banco de produção antes da migração, formato `pg_dump -Fc`; restaurar com `pg_restore`), `coolify-envvars-antes.sql` (tabela de variáveis do Coolify antes da correção), `pre-deploy-AAAAMMDD-HHMM.dump` (um antes de cada deploy; os de 2026-10-17 estão em `pre-deploy-20261017-*`). Não há backup automático agendado — **criar rotina** (Coolify → banco → Backups).
 
 **Integrações externas**
 - **WhatsApp/n8n**: endpoints `/api/whatsapp/*` com `Authorization: Bearer <WHATSAPP_API_KEY>`; `?unit=<slug>` (padrão `matriz`). Em produção, sem a chave o acesso é recusado — **o fluxo do n8n precisa usar a chave nova**.
 - **print-agent**: chave por unidade = HMAC(`PRINT_AGENT_SECRET`, slug); gerar com `npx tsx scripts/print-agent-key.ts <slug>`.
-- **InfinityPay**: handle em `INFINITEPAY_HANDLE`; webhook `/api/pagamentos/webhook` (verificação de assinatura pendente).
+- **InfinitePay**: InfiniteTag por unidade (Admin → Configurações → Pagamento online); webhook `/api/pagamentos/webhook` confirma via `payment_check` (a InfinitePay não assina o webhook). Ver `docs/pagamentos-infinitepay.md`.
 
 ---
 
@@ -253,11 +283,15 @@ O projeto roda inteiramente em Docker. Três containers definidos em `docker-com
 | Container | Imagem | Porta | Função |
 |-----------|--------|-------|--------|
 | `banguelas-nginx` | nginx:alpine | **80** | Proxy reverso; serve `/uploads/` direto do disco |
-| `banguelas-app` | delivery-erp-app | 3000 (interno) | Next.js produção |
-| `banguelas-db` | postgres:16-alpine | 5432 | Banco de dados |
+| `banguelas-app` | delivery-erp-app | 3000 (só `127.0.0.1`) | Next.js produção |
+| `banguelas-db` | postgres:16-alpine | 5432 (só `127.0.0.1`) | Banco de dados |
 
 **Acesso:** `http://localhost` (porta 80) — nunca acessar porta 3000 diretamente.  
 **Por quê:** Next.js em produção só enxerga arquivos de `public/` que existiam no startup. O Nginx serve `/uploads/` diretamente do disco, tornando uploads visíveis imediatamente sem restart.
+
+**Senha do Postgres:** `POSTGRES_PASSWORD` (padrão `postgres` só em dev local). No `docker-compose.coolify.yml` ela é **obrigatória** (o compose não sobe sem ela). Portas do banco e do app nunca são publicadas na rede.
+
+**Imagem (`Dockerfile`)**: `node:22-alpine`; `docker-entrypoint.sh` cria/ajusta a permissão de `public/uploads` (volume montado como root) e inicia `prisma db push && npm start` como usuário `node` via `su-exec`.
 
 **Uploads persistidos em pasta local** — `./public/uploads/` (bind mount, não named volume). Sobrevive a reinstalação do Docker.
 
@@ -296,8 +330,8 @@ npm run dev
 
 > Em dev local, o Next.js detecta arquivos novos em `public/` em tempo real. O Nginx só é necessário em produção (containers Docker).
 
-### Credenciais padrão (seed)
-- **Admin:** `admin@banguelas.com.br` / `admin123`
+### Credenciais padrão (seed) — SÓ desenvolvimento
+- **Admin:** `admin@banguelas.com.br` / `admin123` (nunca em produção)
 - **Cupom de exemplo:** `BEMVINDO10` (10% off, primeiro pedido)
 
 ### Dados fictícios (seed)
@@ -316,8 +350,14 @@ NEXT_PUBLIC_APP_NAME=Banguelas
 WAREHOUSE_LAT=-20.8189
 WAREHOUSE_LNG=-49.3750
 
-# InfinityPay — InfiniteTag sem o "$"
-INFINITEPAY_HANDLE=seu-handle-aqui
+# InfinitePay — InfiniteTag padrão da MATRIZ (sem o "$"). Cada unidade cadastra a sua em Admin → Configurações.
+INFINITEPAY_HANDLE=
+
+# Quantos proxies confiáveis estão à frente do app (Traefik = 1). Define qual IP do X-Forwarded-For vale no rate limit.
+# TRUSTED_PROXY_HOPS=1
+
+# Só nos docker-compose (dev local tem padrão; compose do Coolify exige)
+# POSTGRES_PASSWORD=
 
 # Bearer token que o n8n envia nas chamadas WhatsApp
 WHATSAPP_API_KEY=trocar-por-chave-segura
@@ -347,7 +387,7 @@ NFSE_CERT_PASSWORD=
 | `/minha-conta/fidelidade` | Tier atual, configurações do programa, histórico de transações |
 | `/minha-conta/notificacoes` | Preferências: WhatsApp, Email, Promos, Lembrete de Recompra |
 
-### Admin (protegido por next-auth, role `ADMIN`)
+### Admin (protegido por next-auth; staff = SUPER_ADMIN / ADMIN / STAFF da unidade do host)
 | Rota | Descrição |
 |------|-----------|
 | `/admin/login` | Login com e-mail/senha |
@@ -384,11 +424,14 @@ NFSE_CERT_PASSWORD=
 ### API Routes — Gerais
 | Rota | Métodos | Descrição |
 |------|---------|-----------|
-| `/api/pedidos` | GET, POST | Listar/criar pedidos — POST decrementa estoque em `$transaction`; gera link InfinityPay se `ONLINE_PIX`/`ONLINE_CREDIT`; emite SSE `order_new` |
+| `/api/pedidos` | GET, POST | Listar/criar pedidos — POST decrementa estoque em `$transaction`; gera link InfinitePay se `ONLINE_PIX`/`ONLINE_CREDIT` (e a unidade tem InfiniteTag); emite SSE `order_new` |
 | `/api/pedidos/[id]` | GET, PATCH | Detalhe/atualizar status — PATCH emite SSE `order_confirmed` ou `order_status` |
 | `/api/pedidos/[id]/romaneio` | GET | HTML do romaneio para impressão — já inclui `window.print()` no `onload` |
-| `/api/pedidos/[id]/pagamento` | POST | Gera/reenvia link InfinityPay para um pedido existente |
-| `/api/pagamentos/webhook` | POST | Webhook InfinityPay — confirma pagamento, avança status para CONFIRMED, emite SSE |
+| `/api/pedidos/[id]/pagamento` | POST | Gera/reenvia link InfinitePay para um pedido existente da unidade (409 se já pago/cancelado/sem tag) |
+| `/api/pagamentos/webhook` | POST | Webhook InfinitePay — **não confia no corpo**: confirma via `payment_check`, marca PAID, avança para CONFIRMED, emite SSE. 200/400/404 (ver `docs/pagamentos-infinitepay.md`) |
+| `/pedido/retorno` | página | Para onde a InfinitePay devolve o cliente; confirma o pagamento pelo `payment_check` e mostra o status |
+| `/api/unit` | GET | Unidade do host + `onlinePayment` (a unidade tem InfiniteTag?) |
+| `/api/unit/pagamento` | GET, PUT | InfiniteTag da própria unidade (só ADMIN) |
 | `/api/admin/events` | GET | SSE stream para o painel admin — emite `order_new`, `order_confirmed`, `order_status`; `runtime = "nodejs"` |
 | `/api/clientes` | GET, POST | Listar/criar clientes — POST cria LoyaltyCard automaticamente |
 | `/api/clientes/[id]` | GET, PUT | Perfil completo/editar cliente |
@@ -401,7 +444,7 @@ NFSE_CERT_PASSWORD=
 | `/api/upload-banner` | POST | Upload para slides do banner; `?type=desktop` → 1400×480, `?type=mobile` → 800×600; salva em `public/uploads/banners/`; exige `runtime = "nodejs"` |
 | `/api/cupons` | GET, POST | Listar/criar cupons |
 | `/api/cupons/[id]` | PATCH, DELETE | Editar/excluir cupom |
-| `/api/cupons/validar` | GET | Valida cupom `?code=X&total=Y` |
+| `/api/cupons/validar` | POST | Valida cupom (`{ code, subtotal }`); rate limit 30/10 min por IP |
 | `/api/categorias` | GET, POST | Lista/cria categorias; `?includeInactive=true` retorna todas |
 | `/api/categorias/[id]` | PATCH, DELETE | Editar / soft-delete de categoria |
 | `/api/zonas-entrega` | GET, POST | Listar/criar zonas |
@@ -416,7 +459,7 @@ NFSE_CERT_PASSWORD=
 | `/api/auth/[...nextauth]` | — | next-auth handlers |
 | `/api/whatsapp/cardapio` | GET | Lista de produtos para o bot WhatsApp (n8n); auth por Bearer `WHATSAPP_API_KEY` |
 | `/api/whatsapp/sessao/[phone]` | GET, PATCH, DELETE | Estado da sessão WhatsApp por telefone; auth por Bearer |
-| `/api/whatsapp/pedido` | POST | Cria pedido a partir do WhatsApp (n8n); gera link InfinityPay; auth por Bearer |
+| `/api/whatsapp/pedido` | POST | Cria pedido a partir do WhatsApp (n8n); gera link InfinitePay; auth por Bearer (comparação em tempo constante) |
 
 ---
 
@@ -442,12 +485,17 @@ src/
 ├── lib/
 │   ├── prisma.ts              # Singleton com PrismaPg adapter
 │   ├── auth.ts                # nextAuthOptions (dois providers: admin + customer)
-│   ├── customer-auth.ts       # Helper getCustomerFromSession — retorna {customer, error}
+│   ├── customer-auth.ts       # getCustomerSession() — {customer, error}; só vale na unidade do host
 │   ├── utils.ts               # formatCurrency, ageLabel, orderStatusLabel, etc.
 │   ├── cep.ts                 # ViaCEP integration
 │   ├── haversine.ts           # Cálculo de distância crow-fly × 1.3 (fator de estrada); exporta WAREHOUSE_LAT/LNG
 │   ├── geocoding.ts           # Geocodifica CEP via Nominatim (OSM, gratuito); cache em memória por CEP
-│   ├── infinitepay.ts         # Client da API InfinityPay — createPaymentLink(), checkPayment()
+│   ├── infinitepay.ts         # Client InfinitePay (puro): createPaymentLink(), checkPayment(), buildCheckoutItems(), isPaymentSufficient()
+│   ├── payment-link.ts        # issuePaymentLink(), handle por unidade, URLs de retorno/webhook
+│   ├── payment-confirm.ts     # confirmOnlinePayment(): confirma via payment_check (idempotente)
+│   ├── sanitize.ts            # Validação de entrada por lista de permitidos (produto, cupom, estoque, URL GISS)
+│   ├── upload-url.ts          # Validação de URL de imagem/banner/link e caminho de arquivo em uploads
+│   ├── rate-limit.ts          # hit/isBlocked/recordFailure, clientIp (X-Forwarded-For do proxy confiável), 429
 │   ├── nfse.ts                # NFS-e GissOnline ABRASF 2.04 — getNfseConfig(), emitirNfse(), getCertStatus()
 │   └── sse.ts                 # SSE event emitter global (singleton) — emitAdminEvent(); exige runtime nodejs
 ├── store/
@@ -470,30 +518,19 @@ public/
 
 ## Autenticação — Dois Providers
 
-`src/lib/auth.ts` define dois `CredentialsProvider` coexistentes:
+`src/lib/auth.ts` define dois `CredentialsProvider` coexistentes (mais o Google, só para clientes):
 
-| Provider ID | Acesso | Identificador | role no JWT |
+| Provider ID | Acesso | Identificador | role |
 |---|---|---|---|
-| `credentials` | `/admin` | email | `"ADMIN"` |
-| `customer-credentials` | `/minha-conta` | telefone **ou** email | `"CUSTOMER"` |
+| `credentials` | `/admin` | e-mail | `SUPER_ADMIN`, `ADMIN` ou `STAFF` (do banco) |
+| `customer-credentials` | `/minha-conta` | telefone **ou** e-mail | `CUSTOMER` (`CUSTOMER_PENDING` até completar o cadastro Google) |
 
-O JWT estende os campos padrão com `role` e `phone`. A sessão expõe `session.user.role` e `session.user.phone`.
-
-**`SessionProvider`** — `src/components/Providers.tsx` envolve `{children}` no `src/app/layout.tsx` para que `useSession()` funcione em qualquer componente client (incluindo `CheckoutModal`).
-
-**Proteção de rotas admin** — `src/app/admin/(protected)/layout.tsx` verifica apenas `if (!session?.user)` — **não verifica a role**. Qualquer usuário autenticado (inclusive CUSTOMER) passa pelo layout, mas as API routes verificam `role === "ADMIN"` individualmente e retornam 401.
-
-**Proteção de rotas do cliente** — `src/app/minha-conta/(protected)/layout.tsx` chama `getServerSession`, verifica `role === "CUSTOMER"`, redireciona para `/minha-conta/login` se necessário.
-
-**Helper de API** — `src/lib/customer-auth.ts`:
-```typescript
-export async function getCustomerFromSession() {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "CUSTOMER") return { customer: null, error: 401 };
-  const customer = await prisma.customer.findUnique({ where: { id: session.user.id } });
-  return { customer, error: customer ? null : 404 };
-}
-```
+- **Sessão JWT de 7 dias, conferida no banco a cada chamada.** O callback `session` (`lib/auth.ts`) relê o usuário/cliente: se estiver desativado, apagado ou com `sessionVersion` diferente da do token, devolve só `{ expires }` (sem `user`), e todo `session?.user` do sistema passa a falhar. Papel e unidade da sessão vêm do banco, não do token.
+- **`User.sessionVersion`** sobe na troca de senha, reset, desativação e troca de perfil (`api/conta/senha`, `api/franquias/[id]/usuarios/[uid]`).
+- **Força bruta**: 5 senhas erradas por conta e 20 por IP a cada 15 min bloqueiam o login (erro `RATE_LIMITED`; as telas mostram a mensagem própria). Sucesso zera o contador da conta.
+- **Proteção de rotas admin**: `src/app/admin/(protected)/layout.tsx` exige staff da unidade do host (SUPER_ADMIN acessa qualquer uma); páginas sensíveis conferem o papel (ADMIN) no servidor. **As APIs são a barreira real**: `requireStaff()` / `requireHQAdmin()` / `requireFranchiseAdmin()` em `lib/api-auth.ts`.
+- **Proteção de rotas do cliente**: `src/app/minha-conta/(protected)/layout.tsx` e `getCustomerSession()` (`lib/customer-auth.ts`) exigem `CUSTOMER` **da unidade do host** (e ativo).
+- **`SessionProvider`** — `src/components/Providers.tsx` envolve `{children}` em `src/app/layout.tsx`, para `useSession()` funcionar em qualquer componente client.
 
 ---
 
@@ -503,20 +540,23 @@ export async function getCustomerFromSession() {
 
 1. **Passo cliente**: exibe banner verde "Logado como [Nome]", pré-preenche nome/email/telefone (telefone readonly).
 2. **Passo endereço**: busca `GET /api/minha-conta/enderecos`, exibe cards de endereços salvos com taxa de entrega. Botão dashed "Usar outro endereço" permite digitar manualmente.
-3. **Passo pagamento**: métodos separados em "Pague agora" (ONLINE_PIX, ONLINE_CREDIT → InfinityPay) e "Pague na entrega" (PIX, Cartão, Dinheiro).
-4. **Criação do pedido**: ao selecionar endereço salvo, usa o `id` do endereço diretamente. Se pagamento online → link InfinityPay gerado e exibido na tela de sucesso com botão "Pagar agora →".
-5. **Passo sucesso**: se pagamento online, exibe link InfinityPay; caso contrário, exibe status do pedido.
+3. **Passo pagamento**: "Pague agora" (ONLINE_PIX, ONLINE_CREDIT → InfinitePay) **só aparece se a unidade tem InfiniteTag** (`/api/unit` → `onlinePayment`); "Pague na entrega" (PIX, Cartão, Dinheiro) sempre.
+4. **Criação do pedido**: ao selecionar endereço salvo, usa o `id` do endereço diretamente. Se pagamento online → link InfinitePay gerado e exibido na tela de sucesso com botão "Pagar agora →".
+5. **Passo sucesso**: se pagamento online, exibe o link; se o link falhou (`paymentLinkFailed`), avisa que a equipe enviará o link; caso contrário, exibe o status do pedido.
+
+A resposta de `POST /api/checkout` é montada campo a campo (nunca devolve o cliente inteiro). Rate limit: 20 pedidos / 10 min por IP.
 
 ---
 
-## Gateway de Pagamento — InfinityPay
+## Gateway de Pagamento — InfinitePay
 
-- **API**: `POST https://api.checkout.infinitepay.io/links` — sem autenticação por header, só `handle` no body
-- **Autenticação**: `INFINITEPAY_HANDLE` no `.env` (sua InfiniteTag sem o `$`)
-- **Webhook**: `POST /api/pagamentos/webhook` — InfinityPay chama quando pagamento confirmado; atualiza `Payment.status = PAID` e `Order.status = CONFIRMED`; emite SSE `order_confirmed`
-- **Reenvio**: `POST /api/pedidos/[id]/pagamento` — gera novo link para pedido com pagamento pendente
-- **Preços**: sempre em centavos (`price: Math.round(valor * 100)`)
-- **`order_nsu`**: usa o `Order.id` como identificador de pedido no gateway
+Documentação completa: **`docs/pagamentos-infinitepay.md`**. Resumo:
+
+- **Uma InfiniteTag por unidade** (`Unit.infinitepayHandle`, editável em Admin → Configurações; matriz tem fallback em `INFINITEPAY_HANDLE`). Sem tag, o pagamento online fica desligado na unidade.
+- **Link**: `POST https://api.checkout.infinitepay.io/links` (`lib/infinitepay.ts` → `createPaymentLink`), valores em centavos, `order_nsu = Order.id`, `redirect_url` = `/pedido/retorno` da unidade, `webhook_url` = `https://<AUTH_HOST>/api/pagamentos/webhook`. A soma dos itens fecha com o total (frete incluso); com desconto vai item único. Geração em `lib/payment-link.ts` (`issuePaymentLink`), usada por `createOrder` e por `POST /api/pedidos/[id]/pagamento` ("Cobrar").
+- **Confirmação**: `lib/payment-confirm.ts` (`confirmOnlinePayment`) — pergunta à InfinitePay (`payment_check`) com a tag da unidade dona do pedido; só marca PAID se pago e valor ≥ total; baixa atômica e idempotente. O webhook **não é assinado**, então o corpo é só uma dica.
+- Pedido cancelado que recebe pagamento não reabre (log "Estornar manualmente").
+- A resposta de `/links` não é documentada pela InfinitePay: `extractLink` aceita `url`/`checkout_url`/`link`/`payment_url` (https). **Falta um pedido real de baixo valor para confirmar.**
 
 ---
 
@@ -585,7 +625,7 @@ Para takeover humano: setar `{ state: "PAUSED_HUMAN", pausedAt: new Date() }` vi
 - **Child** — `birthDate` → faixa etária calculada em meses para filtros
 - **Product** — `ageMin`/`ageMax` em meses, `frozen`, `featured`, `priceOriginal`
 - **ProductImage** — `url`, `isMain`, `alt`, `order`
-- **Order** — enum `OrderStatus` (PENDING→CONFIRMED→IN_PRODUCTION→READY→DISPATCHED→DELIVERED); campo `paymentLinkUrl String?` para link InfinityPay
+- **Order** — enum `OrderStatus` (PENDING→CONFIRMED→IN_PRODUCTION→READY→DISPATCHED→DELIVERED); campo `paymentLinkUrl String?` para link InfinitePay
 - **Payment** — `method`, `status`, `gatewayId`, `gatewayData Json?`; métodos online: `ONLINE_PIX`, `ONLINE_CREDIT`
 - **LoyaltyCard** — pontos acumulados por pedido; tiers: BRONZE/SILVER/GOLD/PLATINUM
 - **LoyaltyConfig** — configurações do programa de fidelidade por brand
@@ -627,7 +667,7 @@ O programa usa um modelo de **cartão de pontos** (punch card), não acúmulo co
 3. **Romaneio** é HTML puro com `window.print()` no `onload` — sem biblioteca PDF; abre em popup via `window.open(..., "popup=1")`
 4. **ViaCEP + Nominatim** — ViaCEP preenche endereço; Nominatim geocodifica CEP para calcular distância até o CD
 5. **`export const dynamic = "force-dynamic"`** obrigatório em páginas que acessam DB diretamente (ex: `/cardapio`)
-6. **Proteção de rotas admin**: route group `(protected)` em `/admin/(protected)` com layout que verifica `role === "ADMIN"`
+6. **Proteção de rotas admin**: route group `(protected)` em `/admin/(protected)` com layout que exige staff da unidade do host; a barreira real são as APIs (`requireStaff` e variantes)
 7. **Proteção de rotas do cliente**: route group `(protected)` em `/minha-conta/(protected)`; login fora do grupo para evitar loop de redirect
 8. **Upload de imagens de produto**: `POST /api/upload` exige `runtime = "nodejs"`. Sharp → WebP 800×800 max. Pasta `public/uploads/products/` criada automaticamente.
 9. **Upload de imagens de banner**: `POST /api/upload-banner?type=desktop|mobile` → 1400×480 ou 800×600. Salva em `public/uploads/banners/`.
@@ -784,6 +824,10 @@ Os produtos e categorias reais da Banguelas foram importados via `prisma/reset-c
 - Filtro de status (Todos / Ativos / Estoque baixo) + filtro por categoria em pills.
 - Quando "Todas as categorias" está selecionado, produtos são agrupados por categoria com cabeçalhos.
 - Botão **Excluir** (lixeira) faz soft-delete via `DELETE /api/produtos/:id` (seta `active: false`) com `window.confirm`.
+- Botão **Novo produto** abre o modal em modo criação (`POST /api/produtos`); ao salvar, o modal continua em modo edição para **adicionar fotos** (precisam do id). Estoque nasce em 0 (ajustar em Estoque). Teste: `scripts/test-produto-ui.ts`.
+
+### Admin `/admin/cupons`
+- Criar, **editar** (lápis, reaproveita o formulário; `PATCH /api/cupons/[id]`), ativar/desativar e excluir. `usedCount` não é editável. Datas "yyyy-MM-dd" valem o dia inteiro em Brasília (início para "válido de", 23:59:59 para "válido até"). Teste: `scripts/test-cupom-ui.ts`.
 
 ### Admin `/admin/configuracoes` — Seção "Categorias"
 - Modo **Personalizado**: reordena com botões ↑/↓, salva via `PATCH /api/categorias/:id` com `{ order: N }` para cada categoria.
@@ -794,7 +838,7 @@ Os produtos e categorias reais da Banguelas foram importados via `prisma/reset-c
 
 ## Pendente / Próximos Passos
 
-- [ ] Página `/admin/produtos/novo` — formulário de criação de produto
+- [x] Criação de produto — botão "Novo produto" em `/admin/produtos` (2026-10-17)
 - [ ] Adicionar fotos aos 85 produtos restantes via `/admin/produtos` (8 já cadastradas)
 - [ ] Aplicar regras de `LoyaltyConfig` na validação de pedidos (contagem válida, intervalo mínimo, etc.)
 - [ ] Aplicar desconto de fidelidade no checkout (cliente com recompensa ativa)
@@ -804,4 +848,5 @@ Os produtos e categorias reais da Banguelas foram importados via `prisma/reset-c
 - [ ] Multi-unidade / franqueados — fase 0 feita (Unit + unitId + escopo das rotas); login Google feito; cadastro de franqueado/link/usuários, sync de catálogo, reposição, avisos/pop-ups, premiações e dashboard da rede feitos
 - [ ] Segunda marca "Minuto Menu" (mesma stack, nova Brand no banco)
 - [x] Deploy em produção (Coolify + Traefik, 2026-09-30) — ver "Segunda etapa" e "Acessos e infraestrutura de produção"
+- [ ] **Segurança**: verificação de telefone/e-mail no cadastro de cliente (canal de envio a definir); backup agendado do banco; cadastrar a InfiniteTag e fazer um pedido real de teste; teste manual do login Google — ver `docs/seguranca.md`
 - [ ] Produção: volume persistente para `public/uploads/` (confirmar no Coolify), `print-agent` como serviço, backup agendado do banco, DNS curinga das franquias, trocar senhas dos admins
