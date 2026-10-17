@@ -78,6 +78,8 @@ export default function ProdutosPage() {
   const [catFilter, setCatFilter] = useState<string>("all");
 
   const [editProduct, setEditProduct] = useState<Product | null>(null);
+  const [creating, setCreating] = useState(false); // modal em modo "novo produto" (ainda sem id: fotos só depois de salvar)
+  const [justCreated, setJustCreated] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
   const [modalImages, setModalImages] = useState<ProductImage[]>([]);
   const [saving, setSaving] = useState(false);
@@ -137,13 +139,29 @@ export default function ProdutosPage() {
     load();
   }
 
+  function openCreate() {
+    setEditProduct(null);
+    setCreating(true);
+    setJustCreated(false);
+    setForm({
+      name: "", description: "", price: "", priceOriginal: "", ageMin: "", ageMax: "", categoryId: "",
+      featured: false, active: true, frozen: true, resalePrice: "", franchisePrice: "",
+      barcode: "", ncm: "", packWeightG: "", packLengthCm: "", packWidthCm: "", packHeightCm: "",
+    });
+    setModalImages([]);
+  }
+
   function openEdit(p: Product) {
+    setCreating(false);
+    setJustCreated(false);
     setEditProduct(p);
     setForm(productToForm(p));
     setModalImages(p.images);
   }
 
   function closeEdit() {
+    setCreating(false);
+    setJustCreated(false);
     setEditProduct(null);
     setForm(null);
     setModalImages([]);
@@ -200,10 +218,10 @@ export default function ProdutosPage() {
   }
 
   async function saveEdit() {
-    if (!editProduct || !form) return;
+    if (!form || (!editProduct && !creating)) return;
     setSaving(true);
     try {
-      await axios.put(`/api/produtos/${editProduct.id}`, {
+      const payload = {
         name: form.name,
         description: form.description || null,
         price: parseFloat(form.price),
@@ -222,7 +240,19 @@ export default function ProdutosPage() {
         packLengthCm: form.packLengthCm,
         packWidthCm: form.packWidthCm,
         packHeightCm: form.packHeightCm,
-      });
+      };
+      if (creating) {
+        // Produto novo: cria e continua no modal já em modo de edição, para adicionar as fotos (precisam do id)
+        const { data: created } = await axios.post("/api/produtos", payload);
+        setCreating(false);
+        setEditProduct({ ...created, images: created.images ?? [] });
+        setForm(productToForm({ ...created, images: created.images ?? [] }));
+        setModalImages([]);
+        setJustCreated(true);
+        load();
+        return;
+      }
+      await axios.put(`/api/produtos/${editProduct!.id}`, payload);
       closeEdit();
       load();
     } catch (err) {
@@ -240,7 +270,7 @@ export default function ProdutosPage() {
           <h1 className="text-2xl font-bold text-zinc-900">Produtos</h1>
           <p className="text-zinc-500 text-sm">{filtered.length} de {products.length} produto{products.length !== 1 ? "s" : ""}</p>
         </div>
-        <Button className="bg-orange-500 hover:bg-orange-600">
+        <Button className="bg-orange-500 hover:bg-orange-600" onClick={openCreate}>
           <Plus className="w-4 h-4 mr-2" /> Novo produto
         </Button>
       </div>
@@ -389,18 +419,22 @@ export default function ProdutosPage() {
         </div>
       )}
 
-      {/* Edit Modal */}
-      {editProduct && form && (
+      {/* Edit / Create Modal */}
+      {(editProduct || creating) && form && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={closeEdit}>
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100">
-              <h2 className="font-semibold text-zinc-900">Editar produto</h2>
+              <h2 className="font-semibold text-zinc-900">{creating ? "Novo produto" : "Editar produto"}</h2>
               <button onClick={closeEdit} className="w-7 h-7 rounded-lg hover:bg-zinc-100 flex items-center justify-center text-zinc-400 transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="p-6 space-y-5 overflow-y-auto max-h-[65vh]">
+
+              {justCreated && (
+                <p className="text-xs text-emerald-700 bg-emerald-50 rounded-xl px-3 py-2">Produto criado! Agora você pode adicionar as fotos. O estoque começa em 0: ajuste em <strong>Estoque</strong> para o produto aparecer como disponível.</p>
+              )}
 
               {/* Images */}
               <div>
@@ -429,7 +463,7 @@ export default function ProdutosPage() {
                     </div>
                   ))}
 
-                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadingImg}
+                  <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadingImg || creating}
                     className="w-20 h-20 rounded-xl border-2 border-dashed border-zinc-200 hover:border-orange-300 flex flex-col items-center justify-center transition-colors text-zinc-400 hover:text-orange-500 disabled:opacity-50">
                     {uploadingImg
                       ? <RefreshCw className="w-5 h-5 animate-spin" />
@@ -438,6 +472,7 @@ export default function ProdutosPage() {
                   </button>
                   <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleImageUpload} />
                 </div>
+                {creating && <p className="text-xs text-zinc-400 mt-1.5">Salve o produto primeiro; depois você adiciona as fotos.</p>}
                 {modalImages.length > 0 && (
                   <p className="text-xs text-zinc-400 mt-1.5">Passe o mouse sobre a foto para definir como principal ou remover.</p>
                 )}
@@ -578,10 +613,10 @@ export default function ProdutosPage() {
               <Button variant="outline" onClick={closeEdit} disabled={saving}>Cancelar</Button>
               <Button
                 onClick={saveEdit}
-                disabled={saving || !form.name || !form.price}
+                disabled={saving || !form.name.trim() || !form.price}
                 className="bg-orange-500 hover:bg-orange-600"
               >
-                {saving ? <><RefreshCw className="w-3.5 h-3.5 animate-spin mr-2" />Salvando…</> : "Salvar alterações"}
+                {saving ? <><RefreshCw className="w-3.5 h-3.5 animate-spin mr-2" />Salvando…</> : creating ? "Criar produto" : "Salvar alterações"}
               </Button>
             </div>
           </div>
