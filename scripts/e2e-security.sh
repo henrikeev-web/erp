@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Regressão de segurança ponta a ponta: banco descartável + servidor real (precisa de `next build` feito e do
+# container erp-dev-db). Uso: bash scripts/e2e-security.sh   (apaga o banco de teste ao final)
+set -u
+cd "$(dirname "$0")/.."
+DB=erp_sec_test; PORT=3998; B=http://localhost:$PORT; J=$(mktemp); FAILS=0
+export DATABASE_URL=postgresql://postgres:dev@localhost:5433/$DB
+psql_() { docker exec erp-dev-db psql -U postgres -d "$1" -tAq -c "$2"; }
+ok(){ if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1 (got '$2' want '$3')"; FAILS=$((FAILS+1)); fi; }
+cleanup(){ kill $(ss -ltnp | grep ":$PORT" | grep -o 'pid=[0-9]*' | cut -d= -f2) 2>/dev/null; psql_ postgres "drop database if exists $DB" >/dev/null 2>&1; rm -f "$J" certs/SENTINELA.txt public/uploads/products/{legit,shared}.webp; }
+trap cleanup EXIT
+psql_ postgres "drop database if exists $DB" >/dev/null; psql_ postgres "create database $DB" >/dev/null
+# banco novo e vazio: `db push` simples basta (sem --accept-data-loss)
+npx prisma db push >/dev/null 2>&1 || { echo 'FALHA: prisma db push'; exit 99; }
+npx tsx prisma/seed.ts >/dev/null 2>&1 || { echo 'FALHA: seed'; exit 99; }
+psql_ $DB 'update "StockItem" set quantity=500'
+(env NEXTAUTH_URL=$B NEXTAUTH_SECRET=teste BASE_DOMAIN= AUTH_HOST= COOKIE_DOMAIN= nohup npx next start -H 127.0.0.1 -p $PORT >/dev/null 2>&1 &)
+for i in $(seq 1 30); do curl -s -o /dev/null $B/api/unit && break; sleep 1; done
+
+echo "== pagamento (InfinitePay simulada)"; npx tsx scripts/test-payment-e2e.ts 2>&1 | grep -E "^(ok|FAIL)|tudo ok|FALHA" | grep -v "^ok" | sed 's/^/   /'; [ "${PIPESTATUS[0]}" = 0 ] || FAILS=$((FAILS+1))
+psql_ $DB 'update "StockItem" set quantity=500; delete from "Order"'
+psql_ $DB "update \"Unit\" set \"infinitepayHandle\"=null"
+
+echo "== vazamento no checkout"
+psql_ $DB "update \"Customer\" set cpf='123.456.789-00', notes='CLIENTE VIP interno', email='vitima@x.com', \"passwordHash\"='\$2a\$10\$HASHSECRETO' where id=(select id from \"Customer\" where type='RETAIL' and \"unitId\"=(select id from \"Unit\" where slug='matriz') limit 1)"
+PHONE=$(psql_ $DB "select phone from \"Customer\" where cpf='123.456.789-00'"); [ -n "$PHONE" ] || { echo 'FALHA: preparação do cliente de teste'; exit 99; }; PID=$(psql_ $DB "select id from \"Product\" where active and kind='SIMPLE' limit 1")
+R=$(curl -s -X POST $B/api/checkout -H 'content-type: application/json' -d "{\"customer\":{\"name\":\"Atacante\",\"phone\":\"$PHONE\"},\"type\":\"PICKUP\",\"paymentMethod\":\"PIX\",\"items\":[{\"productId\":\"$PID\",\"quantity\":1}]}")
+for s in HASHSECRETO 123.456.789 "CLIENTE VIP" vitima@x.com passwordHash googleId; do ok "resposta não contém $s" "$(echo "$R" | grep -c "$s")" 0; done
+ok "pedido criado" "$(echo "$R" | grep -c '"number"')" 1
+
+echo "== sessão admin"
+CSRF=$(curl -s -c $J $B/api/auth/csrf | python3 -I -c "import json,sys;print(json.load(sys.stdin)['csrfToken'])")
+curl -s -b $J -c $J -o /dev/null -X POST $B/api/auth/callback/credentials -d "csrfToken=$CSRF&email=admin@banguelas.com.br&password=admin123&json=true"
+ok "login admin" "$(curl -s -b $J $B/api/auth/session | grep -c ADMIN)" 1
+
+echo "== path traversal / uploads"
+mkdir -p public/uploads/products; echo x > certs/SENTINELA.txt
+for u in "/uploads/../../certs/SENTINELA.txt" "/uploads/products/../x.webp" "javascript:alert(1)"; do
+  ok "POST imagem recusa $u" "$(curl -s -b $J -o /dev/null -w '%{http_code}' -X POST $B/api/produtos/$PID/imagens -H 'content-type: application/json' -d "{\"url\":\"$u\"}")" 400; done
+psql_ $DB "insert into \"ProductImage\"(id,\"productId\",url,\"isMain\",\"order\") values ('evil1','$PID','/uploads/../../certs/SENTINELA.txt',false,0)"
+curl -s -b $J -o /dev/null -X DELETE $B/api/produtos/$PID/imagens/evil1
+ok "DELETE com url maliciosa preserva arquivo fora de uploads" "$(test -f certs/SENTINELA.txt && echo existe)" existe
+echo i > public/uploads/products/legit.webp; echo i > public/uploads/products/shared.webp
+OTHER=$(psql_ $DB "select id from \"Product\" where id<>'$PID' limit 1")
+psql_ $DB "insert into \"ProductImage\"(id,\"productId\",url,\"isMain\",\"order\") values ('l1','$PID','/uploads/products/legit.webp',false,0),('s1','$PID','/uploads/products/shared.webp',false,0),('s2','$OTHER','/uploads/products/shared.webp',false,0)"
+curl -s -b $J -o /dev/null -X DELETE $B/api/produtos/$PID/imagens/l1; curl -s -b $J -o /dev/null -X DELETE $B/api/produtos/$PID/imagens/s1
+ok "DELETE apaga upload sem outras referências" "$(test -f public/uploads/products/legit.webp && echo existe || echo apagado)" apagado
+ok "DELETE preserva arquivo usado por outro produto" "$(test -f public/uploads/products/shared.webp && echo existe || echo apagado)" existe
+ok "PATCH imagem recusa url traversal" "$(curl -s -b $J -o /dev/null -w '%{http_code}' -X PATCH $B/api/produtos/$OTHER/imagens/s2 -H 'content-type: application/json' -d '{"url":"/uploads/../x.webp"}')" 400
+ok "banner recusa javascript:" "$(curl -s -b $J -o /dev/null -w '%{http_code}' -X POST $B/api/banner-slides -H 'content-type: application/json' -d '{"desktopImageUrl":"/uploads/banners/a.webp","mobileImageUrl":"/uploads/banners/b.webp","linkUrl":"javascript:alert(1)"}')" 400
+ok "banner válido aceito" "$(curl -s -b $J -o /dev/null -w '%{http_code}' -X POST $B/api/banner-slides -H 'content-type: application/json' -d '{"desktopImageUrl":"/uploads/banners/a.webp","mobileImageUrl":"/uploads/banners/b.webp","linkUrl":"/cardapio"}')" 201
+
+echo "== webhook forjado"
+OID=$(psql_ $DB "select id from \"Order\" limit 1")
+ok "webhook sem corpo" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/pagamentos/webhook -H 'content-type: application/json' -d '{}')" 400
+ok "webhook de pedido inexistente" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/pagamentos/webhook -H 'content-type: application/json' -d '{"order_nsu":"x","transaction_nsu":"y","invoice_slug":"z"}')" 404
+
+echo; [ $FAILS = 0 ] && echo "TUDO OK" || echo "$FAILS FALHA(S)"; exit $FAILS
