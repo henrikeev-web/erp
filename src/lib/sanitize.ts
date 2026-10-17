@@ -75,7 +75,9 @@ export function parseCoupon(body: unknown, partial: boolean): Out<Record<string,
   for (const k of ["validFrom", "validTo"] as const) {
     if (k in body) {
       if (blank(body[k])) { if (k === "validFrom") continue; d[k] = null; continue; }
-      const dt = new Date(body[k] as string);
+      // "yyyy-MM-dd" do campo de data = dia inteiro em Brasília (início para "válido de", fim para "válido até")
+      const raw = String(body[k]);
+      const dt = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T${k === "validFrom" ? "00:00:00.000" : "23:59:59.999"}-03:00` : raw);
       if (Number.isNaN(dt.getTime())) return { error: "Data inválida" };
       d[k] = dt;
     }

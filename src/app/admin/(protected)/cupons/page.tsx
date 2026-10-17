@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Plus, RefreshCw, Tag, X, Save, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
+import { Plus, RefreshCw, Tag, X, Save, Trash2, ToggleLeft, ToggleRight, Pencil } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,7 @@ export default function CuponsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [editingId, setEditingId] = useState<string | null>(null); // null = criando
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -48,16 +49,34 @@ export default function CuponsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function create() {
+  // Data do cupom como "yyyy-MM-dd" no horário de Brasília (é como o campo de data e o servidor a interpretam)
+  const toDateInput = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" }) : "");
+
+  function closeForm() { setShowForm(false); setForm(EMPTY_FORM); setEditingId(null); setError(""); }
+
+  function openCreate() { setForm(EMPTY_FORM); setEditingId(null); setError(""); setShowForm(true); }
+
+  function openEdit(c: Coupon) {
+    setForm({
+      code: c.code, description: c.description ?? "", type: c.type, value: c.type === "FREE_DELIVERY" ? "" : String(c.value),
+      minOrder: String(c.minOrder ?? 0), maxDiscount: c.maxDiscount != null ? String(c.maxDiscount) : "",
+      maxUses: c.maxUses != null ? String(c.maxUses) : "", validFrom: toDateInput(c.validFrom), validTo: toDateInput(c.validTo),
+      firstOrderOnly: c.firstOrderOnly, ageMin: c.ageMin != null ? String(c.ageMin) : "", ageMax: c.ageMax != null ? String(c.ageMax) : "",
+    });
+    setEditingId(c.id); setError(""); setShowForm(true);
+  }
+
+  async function save() {
     if (!form.code || (form.type !== "FREE_DELIVERY" && !form.value)) { setError(form.type === "FREE_DELIVERY" ? "Informe o código do cupom" : "Código e valor são obrigatórios"); return; }
     setSaving(true); setError("");
     try {
-      await axios.post("/api/cupons", form.type === "FREE_DELIVERY" ? { ...form, value: 0, maxDiscount: "" } : form);
-      setShowForm(false);
-      setForm(EMPTY_FORM);
+      const payload = { ...form, minOrder: form.minOrder || "0", ...(form.type === "FREE_DELIVERY" ? { value: 0, maxDiscount: "" } : {}) };
+      if (editingId) await axios.patch(`/api/cupons/${editingId}`, payload);
+      else await axios.post("/api/cupons", payload);
+      closeForm();
       load();
     } catch (e: any) {
-      setError(e.response?.data?.error ?? "Erro ao criar cupom");
+      setError(e.response?.data?.error ?? (editingId ? "Erro ao salvar o cupom" : "Erro ao criar cupom"));
     } finally {
       setSaving(false);
     }
@@ -84,7 +103,7 @@ export default function CuponsPage() {
           <h1 className="text-2xl font-bold text-zinc-900">Cupons</h1>
           <p className="text-zinc-500 text-sm">{coupons.length} cupom{coupons.length !== 1 ? "s" : ""} · {active.length} ativo{active.length !== 1 ? "s" : ""}</p>
         </div>
-        <Button className="bg-orange-500 hover:bg-orange-600" onClick={() => { setShowForm(true); setError(""); }}>
+        <Button className="bg-orange-500 hover:bg-orange-600" onClick={openCreate}>
           <Plus className="w-4 h-4 mr-2" /> Novo cupom
         </Button>
       </div>
@@ -131,6 +150,9 @@ export default function CuponsPage() {
                     {coupon.maxUses && <p className="text-xs text-zinc-400">de {coupon.maxUses}</p>}
                   </div>
                   <div className="flex items-center gap-2">
+                    <button onClick={() => openEdit(coupon)} title="Editar cupom" className="w-8 h-8 rounded-lg hover:bg-zinc-100 flex items-center justify-center text-zinc-400 hover:text-zinc-700 transition-colors">
+                      <Pencil className="w-4 h-4" />
+                    </button>
                     <button onClick={() => toggleActive(coupon)} className="w-8 h-8 rounded-lg hover:bg-zinc-100 flex items-center justify-center text-zinc-400 hover:text-zinc-700 transition-colors">
                       {coupon.active ? <ToggleRight className="w-5 h-5 text-green-500" /> : <ToggleLeft className="w-5 h-5" />}
                     </button>
@@ -151,11 +173,11 @@ export default function CuponsPage() {
       {/* Modal criar cupom */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 overflow-y-auto"
-          onClick={(e) => { if (e.target === e.currentTarget) { setShowForm(false); setForm(EMPTY_FORM); } }}>
+          onClick={(e) => { if (e.target === e.currentTarget) closeForm(); }}>
           <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4 my-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-zinc-900">Novo cupom</h2>
-              <button onClick={() => { setShowForm(false); setForm(EMPTY_FORM); }} className="w-8 h-8 rounded-full hover:bg-zinc-100 flex items-center justify-center">
+              <h2 className="text-lg font-bold text-zinc-900">{editingId ? "Editar cupom" : "Novo cupom"}</h2>
+              <button onClick={closeForm} className="w-8 h-8 rounded-full hover:bg-zinc-100 flex items-center justify-center">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -226,10 +248,10 @@ export default function CuponsPage() {
             </div>
 
             <div className="flex gap-2 justify-end pt-2">
-              <Button variant="outline" onClick={() => { setShowForm(false); setForm(EMPTY_FORM); }}>Cancelar</Button>
-              <Button className="bg-orange-500 hover:bg-orange-600" onClick={create} disabled={saving}>
+              <Button variant="outline" onClick={closeForm}>Cancelar</Button>
+              <Button className="bg-orange-500 hover:bg-orange-600" onClick={save} disabled={saving}>
                 {saving ? <RefreshCw className="w-4 h-4 animate-spin mr-1.5" /> : <Save className="w-4 h-4 mr-1.5" />}
-                Criar cupom
+                {editingId ? "Salvar alterações" : "Criar cupom"}
               </Button>
             </div>
           </div>

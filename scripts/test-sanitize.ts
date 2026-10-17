@@ -23,6 +23,10 @@ t("cupom: valor negativo", err(parseCoupon({ type: "FIXED", code: "X", value: -5
 t("cupom: frete grátis ignora valor", (parseCoupon({ type: "FREE_DELIVERY", code: "frete", value: 99 }, false) as any).data.value, 0);
 t("cupom: código em maiúsculas", (parseCoupon({ type: "FIXED", code: "oi10", value: 5 }, false) as any).data.code, "OI10");
 t("cupom: data inválida", err(parseCoupon({ validTo: "ontem" }, true)), true);
+t("cupom: validTo 'yyyy-MM-dd' vale até o fim do dia em Brasília", (parseCoupon({ validTo: "2026-10-20" }, true) as any).data.validTo.toISOString(), "2026-10-21T02:59:59.999Z");
+t("cupom: validFrom começa à meia-noite de Brasília", (parseCoupon({ validFrom: "2026-10-20" }, true) as any).data.validFrom.toISOString(), "2026-10-20T03:00:00.000Z");
+t("cupom: validTo vazio limpa", (parseCoupon({ validTo: "" }, true) as any).data.validTo, null);
+t("cupom: edição completa como a tela envia", (parseCoupon({ code: "oi10", description: "", type: "PERCENTAGE", value: "10", minOrder: "0", maxDiscount: "", maxUses: "", validFrom: "2026-10-01", validTo: "", firstOrderOnly: false, ageMin: "", ageMax: "" }, true) as any).data.value, 10);
 // estoque
 t("estoque: negativo", err(parseStockMove({ type: "IN", quantity: -5 })), true);
 t("estoque: texto", err(parseStockMove({ type: "IN", quantity: "abc" })), true);

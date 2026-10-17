@@ -159,4 +159,8 @@ ok "NFS-e: URL http recusada" "$(pj PUT /api/escola/config '{"cnpj":"1","wsUrl":
 ok "NFS-e: URL da GISS aceita" "$(pj PUT /api/escola/config '{"cnpj":"1","wsUrl":"https://ws-sjrp.giss.com.br/service-ws/nf/nfse-ws","wsHomologUrl":"https://ws-ficticio.giss.com.br/x"}')" 200
 rm -f $SJ
 
+echo "== edição de cupom pela tela (Chromium)"
+docker run --rm --ipc=host --network host -v "$PWD":/work:ro -w /work -e BASE=$B -e EMAIL=rev@x.com -e PASS=Outra-senha-9876 mcr.microsoft.com/playwright:v1.60.0-noble npx tsx scripts/test-cupom-ui.ts 2>&1 | grep -E "^(ok|FAIL)|tudo ok" | sed 's/^/   /'; [ "${PIPESTATUS[0]}" = 0 ] || FAILS=$((FAILS+1))
+ok "banco: valor 25, descrição e validade (fim do dia em Brasília)" "$(psql_ $DB "select value||'|'||description||'|'||to_char(\"validTo\" at time zone 'UTC','YYYY-MM-DD\"T\"HH24:MI') from \"Coupon\" where code='TESTE10'")" "25|Cupom editado pela tela|2031-01-01T02:59"
+
 echo; [ $FAILS = 0 ] && echo "TUDO OK" || echo "$FAILS FALHA(S)"; exit $FAILS
