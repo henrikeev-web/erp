@@ -7,7 +7,7 @@ DB=erp_sec_test; PORT=3998; B=http://localhost:$PORT; J=$(mktemp); FAILS=0
 export DATABASE_URL=postgresql://postgres:dev@localhost:5433/$DB
 psql_() { docker exec erp-dev-db psql -U postgres -d "$1" -tAq -c "$2"; }
 ok(){ if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1 (got '$2' want '$3')"; FAILS=$((FAILS+1)); fi; }
-cleanup(){ kill $(ss -ltnp | grep ":$PORT" | grep -o 'pid=[0-9]*' | cut -d= -f2) 2>/dev/null; psql_ postgres "drop database if exists $DB" >/dev/null 2>&1; rm -f "$J" certs/SENTINELA.txt public/uploads/products/{legit,shared}.webp; }
+cleanup(){ for P in $PORT 3997; do kill $(ss -ltnp | grep ":$P" | grep -o 'pid=[0-9]*' | cut -d= -f2) 2>/dev/null; done; psql_ postgres "drop database if exists $DB" >/dev/null 2>&1; rm -f "$J" certs/SENTINELA.txt public/uploads/products/{legit,shared}.webp; }
 trap cleanup EXIT
 psql_ postgres "drop database if exists $DB" >/dev/null; psql_ postgres "create database $DB" >/dev/null
 # banco novo e vazio: `db push` simples basta (sem --accept-data-loss)
@@ -165,5 +165,17 @@ ok "banco: valor 25, descrição e validade (fim do dia em Brasília)" "$(psql_ 
 
 echo "== produtos pela tela: novo produto + foto (Chromium e Firefox)"
 docker run --rm --ipc=host --network host -v "$PWD":/work:ro -w /work -e BASE=$B -e EMAIL=rev@x.com -e PASS=Outra-senha-9876 mcr.microsoft.com/playwright:v1.60.0-noble npx tsx scripts/test-produto-ui.ts 2>&1 | grep -E "^(ok|FAIL)|tudo ok|FALHA|console|^\s+(error|warning)" | sed 's/^/   /'; [ "${PIPESTATUS[0]}" = 0 ] || FAILS=$((FAILS+1))
+
+echo "== login Google atrás do proxy (produção simulada: HOSTNAME=0.0.0.0, BASE_DOMAIN, AUTH_HOST)"
+(env HOSTNAME=0.0.0.0 PORT=3997 NEXTAUTH_URL=https://cardapio.banguelas.com.br NEXTAUTH_SECRET=teste BASE_DOMAIN=banguelas.com.br AUTH_HOST=cardapio.banguelas.com.br nohup npx next start >/dev/null 2>&1 &)
+for i in $(seq 1 30); do curl -s -o /dev/null localhost:3997/api/unit && break; sleep 1; done
+G=localhost:3997/api/minha-conta/google
+loc(){ curl -s -o /dev/null -D - "$@" | grep -i "^location" | tr -d '\r' | sed 's/^[Ll]ocation: //'; }
+ok "matriz: start volta para o domínio público (não localhost)" "$(loc -H 'Host: cardapio.banguelas.com.br' -H 'X-Forwarded-Proto: https' "$G/start?returnTo=/minha-conta")" "https://cardapio.banguelas.com.br/minha-conta/login/google"
+ok "franquia: start segue para o AUTH_HOST levando o slug" "$(loc -H 'Host: ribeirao.banguelas.com.br' -H 'X-Forwarded-Proto: https' "$G/start?returnTo=/minha-conta")" "https://cardapio.banguelas.com.br/api/minha-conta/google/start?unit=ribeirao&returnTo=%2Fminha-conta"
+ok "Host forjado cai no AUTH_HOST" "$(loc -H 'Host: evil.com' -H 'X-Forwarded-Proto: https' "$G/start")" "https://cardapio.banguelas.com.br/minha-conta/login/google"
+ok "finish devolve à unidade de origem (franquia)" "$(loc -H 'Host: cardapio.banguelas.com.br' -H 'X-Forwarded-Proto: https' -H 'Cookie: bg_login=%7B%22unit%22%3A%22ribeirao%22%2C%22returnTo%22%3A%22%2Fminha-conta%22%7D' $G/finish)" "https://ribeirao.banguelas.com.br/minha-conta/login?erro=google"
+ok "finish matriz" "$(loc -H 'Host: cardapio.banguelas.com.br' -H 'X-Forwarded-Proto: https' $G/finish)" "https://cardapio.banguelas.com.br/minha-conta/login?erro=google"
+ok "cookie do login Google é Secure em produção" "$(curl -s -o /dev/null -D - -H 'Host: cardapio.banguelas.com.br' -H 'X-Forwarded-Proto: https' "$G/start" | grep -i '^set-cookie: bg_login' | grep -ci 'secure')" 1
 
 echo; [ $FAILS = 0 ] && echo "TUDO OK" || echo "$FAILS FALHA(S)"; exit $FAILS

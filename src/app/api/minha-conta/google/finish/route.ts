@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { LOGIN_COOKIE, originForUnit, parseLoginCookie } from "@/lib/google-login";
+import { LOGIN_COOKIE, originForUnit, parseLoginCookie, publicOrigin } from "@/lib/google-login";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   const intent = parseLoginCookie(req.cookies.get(LOGIN_COOKIE)?.value);
-  const origin = originForUnit(intent.unit, req.nextUrl.origin);
+  const origin = originForUnit(intent.unit, publicOrigin(req.headers, req.nextUrl.origin));
   const role = session?.user?.role;
 
   let target: URL;

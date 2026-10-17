@@ -30,10 +30,38 @@ export function parseLoginCookie(raw: string | undefined): LoginIntent {
   }
 }
 
+type HeaderBag = { get(name: string): string | null };
+
+const first = (v: string | null) => (v ?? "").split(",")[0].trim().toLowerCase();
+const isLocalHost = (hostname: string) => hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".localhost");
+
+/**
+ * Origem PÚBLICA da requisição atrás do proxy. `req.url`/`req.nextUrl.origin` NÃO servem: com o servidor ouvindo em
+ * 0.0.0.0 (Docker) o Next devolve sempre "localhost:<porta>", ignorando o Host. Em produção (BASE_DOMAIN + AUTH_HOST)
+ * só aceita o AUTH_HOST ou subdomínios de BASE_DOMAIN (Host forjado cai no AUTH_HOST); em dev só localhost.
+ */
+export function publicOrigin(headers: HeaderBag, fallbackOrigin: string): string {
+  const base = process.env.BASE_DOMAIN?.toLowerCase();
+  const authHost = process.env.AUTH_HOST?.toLowerCase();
+  const host = first(headers.get("x-forwarded-host")) || first(headers.get("host"));
+  const hostname = host.split(":")[0];
+
+  if (base && authHost) {
+    const mine = hostname === authHost || hostname === base || hostname.endsWith(`.${base}`);
+    return `https://${mine && host ? host : authHost}`;
+  }
+  if (host && isLocalHost(hostname)) {
+    const proto = first(headers.get("x-forwarded-proto")) === "https" ? "https" : "http";
+    return `${proto}://${host}`;
+  }
+  return fallbackOrigin;
+}
+
 /** Origem pública de uma unidade. Em dev (host fora de BASE_DOMAIN) volta a própria origem da request. */
 export function originForUnit(slug: string, requestOrigin: string): string {
   const base = process.env.BASE_DOMAIN;
   const authHost = process.env.AUTH_HOST;
-  if (!base || !authHost || !new URL(requestOrigin).hostname.endsWith(base)) return requestOrigin;
+  const hostname = new URL(requestOrigin).hostname;
+  if (!base || !authHost || !(hostname === base || hostname.endsWith(`.${base}`))) return requestOrigin;
   return slug === HQ_SLUG ? `https://${authHost}` : `https://${slug}.${base}`;
 }
