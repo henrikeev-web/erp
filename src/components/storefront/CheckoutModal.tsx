@@ -79,6 +79,8 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
   });
   const [orderType, setOrderType] = useState<"DELIVERY" | "PICKUP">("DELIVERY");
   const [paymentMethod, setPaymentMethod] = useState("PIX");
+  const [onlinePayment, setOnlinePayment] = useState(false); // a unidade tem InfiniteTag? Sem ela não há "pague agora"
+  const [paymentLinkFailed, setPaymentLinkFailed] = useState(false);
   const [changeAmount, setChangeAmount] = useState("");
   const [invoiceDays, setInvoiceDays] = useState<number>(RESELLER_INVOICE_DAYS[1]);
   const [couponInput, setCouponInput] = useState("");
@@ -92,6 +94,11 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
 
   const deliveryFee = address.deliveryFee ?? 0;
   const finalTotal = total(orderType === "DELIVERY" ? deliveryFee : 0);
+
+  useEffect(() => {
+    if (!open) return;
+    axios.get("/api/unit").then(({ data }) => setOnlinePayment(!!data.onlinePayment)).catch(() => setOnlinePayment(false));
+  }, [open]);
 
   // Pre-fill customer data from session
   useEffect(() => {
@@ -205,6 +212,7 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
       setOrderId(order.id);
       setOrderNumber(order.number);
       if (order.paymentLinkUrl) setPaymentLinkUrl(order.paymentLinkUrl);
+      setPaymentLinkFailed(!!order.paymentLinkFailed);
       setStep("success");
       clear();
     } catch (err) {
@@ -468,15 +476,15 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
                 <h3 className="font-semibold text-zinc-900">Pagamento</h3>
               </div>
               <div className="space-y-2">
-                <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Pague agora</p>
-                <div className="grid grid-cols-2 gap-2">
+                {onlinePayment && <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Pague agora</p>}
+                {onlinePayment && <div className="grid grid-cols-2 gap-2">
                   {PAYMENT_METHODS.filter(m => m.online).map((m) => (
                     <button key={m.value} onClick={() => setPaymentMethod(m.value)}
                       className={`py-3 px-3 rounded-xl border text-sm font-medium transition-all text-left flex items-center gap-2 ${paymentMethod === m.value ? "border-orange-500 bg-orange-50 text-orange-700" : "border-zinc-200 text-zinc-600 hover:border-zinc-300"}`}>
                       <span>{m.icon}</span> {m.label}
                     </button>
                   ))}
-                </div>
+                </div>}
                 <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide pt-1">Pague na entrega</p>
                 <div className="grid grid-cols-2 gap-2">
                   {PAYMENT_METHODS.filter(m => !m.online).map((m) => (
@@ -622,6 +630,11 @@ export default function CheckoutModal({ open, onClose, isReseller = false }: Che
                   >
                     Pagar agora →
                   </a>
+                </div>
+              ) : paymentLinkFailed ? (
+                <div style={{ width: "100%", background: "#fffbeb", border: "2px solid #f59e0b", borderRadius: 16, padding: 16, textAlign: "center" }}>
+                  <p style={{ fontWeight: 700, fontSize: 15, color: "#4A3526", marginBottom: 6 }}>⚠️ Não conseguimos gerar o link de pagamento</p>
+                  <p style={{ fontSize: 13, color: "#78716c" }}>Seu pedido foi registrado. Vamos enviar o link de pagamento para você pelo WhatsApp em instantes.</p>
                 </div>
               ) : (
                 <div className="bg-zinc-50 rounded-2xl p-4 w-full text-sm text-zinc-600 space-y-1">

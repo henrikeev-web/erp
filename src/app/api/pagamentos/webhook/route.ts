@@ -1,61 +1,34 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { emitAdminEvent } from "@/lib/sse";
+import { z } from "zod";
+import { confirmOnlinePayment } from "@/lib/payment-confirm";
 
-// InfinityPay calls this when payment is confirmed
+// A InfinitePay chama aqui quando o pagamento é aprovado. O webhook NÃO é assinado: o corpo é só uma indicação
+// de qual pedido consultar. Quem confirma é o payment_check (lib/payment-confirm.ts), nunca o que veio no corpo.
+// 200 = recebido (não repetir); 400 = não consegui confirmar (a InfinitePay tenta de novo).
+const schema = z.object({
+  order_nsu: z.string().min(1).max(64),
+  transaction_nsu: z.string().min(1).max(128),
+  invoice_slug: z.string().min(1).max(128).optional(),
+  slug: z.string().min(1).max(128).optional(),
+});
+
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const {
-      order_nsu: orderId,
-      transaction_nsu: transactionNsu,
-      invoice_slug: slug,
-      paid_amount: paidAmount,
-      capture_method: captureMethod,
-      receipt_url: receiptUrl,
-    } = body;
+  const parsed = schema.safeParse(await req.json().catch(() => null));
+  const slug = parsed.success ? (parsed.data.invoice_slug ?? parsed.data.slug) : undefined;
+  if (!parsed.success || !slug) return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
 
-    if (!orderId) return NextResponse.json({ error: "order_nsu missing" }, { status: 400 });
+  const result = await confirmOnlinePayment({ orderId: parsed.data.order_nsu, transactionNsu: parsed.data.transaction_nsu, slug });
 
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: { payment: true, customer: { select: { name: true } } },
-    });
-
-    if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
-
-    // Idempotency: skip if already paid
-    if (order.payment?.status === "PAID") return NextResponse.json({ ok: true });
-
-    await prisma.$transaction(async (tx: any) => {
-      await tx.payment.update({
-        where: { orderId },
-        data: {
-          status: "PAID",
-          paidAt: new Date(),
-          gatewayId: transactionNsu ?? slug,
-          gatewayData: { slug, paidAmount, captureMethod, receiptUrl },
-        },
-      });
-      await tx.order.update({
-        where: { id: orderId },
-        data: { status: "CONFIRMED", confirmedAt: new Date() },
-      });
-    });
-
-    emitAdminEvent({
-      unitId: order.unitId ?? "",
-      type: "order_confirmed",
-      orderId: order.id,
-      orderNumber: order.number,
-      customerName: order.customer.name,
-    });
-
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("InfinityPay webhook error:", err);
-    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  switch (result) {
+    case "PAID":
+    case "ALREADY_PAID":
+    case "ORDER_CANCELLED": // já registrado no log para estorno; repetir não adianta
+      return NextResponse.json({ ok: true });
+    case "NOT_FOUND":
+      return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
+    default:
+      return NextResponse.json({ error: "Pagamento não confirmado" }, { status: 400 });
   }
 }

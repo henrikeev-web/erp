@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { prisma } from "./prisma";
-import { createPaymentLink } from "./infinitepay";
+import { issuePaymentLink, unitAcceptsOnlinePayment } from "./payment-link";
 import { emitAdminEvent } from "./sse";
 import { addDaysUTC, todayUTC } from "./financeiro";
 import { validatePicks } from "./combo";
@@ -75,6 +75,10 @@ async function retryOnNumberConflict<T>(fn: () => Promise<T>, attempts = 4): Pro
 export async function createOrder(input: CreateOrderInput) {
   const { unit } = input;
   if (input.items.length === 0) throw new OrderError("Pedido sem itens");
+  // Pagamento online só onde a unidade tem InfiniteTag: falha antes de baixar estoque ou gastar cupom
+  if (ONLINE.includes(input.paymentMethod) && !(await unitAcceptsOnlinePayment(unit.id))) {
+    throw new OrderError("Pagamento online indisponível nesta unidade. Escolha outra forma de pagamento.");
+  }
 
   // Produto simples repetido vira uma linha só. Combo NÃO funde: cada combo é uma linha própria, com a sua escolha.
   const qtyByProduct = new Map<string, number>();
@@ -356,18 +360,14 @@ export async function createOrder(input: CreateOrderInput) {
 
   // ── Pós-transação (melhor esforço) ──────────────────────────────────────
   let paymentLinkUrl: string | undefined;
-  if (ONLINE.includes(input.paymentMethod)) {
+  let paymentLinkFailed = false;
+  if (ONLINE.includes(input.paymentMethod) && order.total > 0) {
     try {
-      const { url } = await createPaymentLink({
-        orderId: order.id,
-        orderNumber: order.number,
-        items: order._items.map((i: any) => ({ quantity: i.quantity, price: Math.round(i.price * 100), description: i.name })),
-        customer: { name: order.customer.name, email: order.customer.email ?? undefined, phone: order.customer.phone },
-      });
-      paymentLinkUrl = url;
-      await prisma.order.update({ where: { id: order.id }, data: { paymentLinkUrl: url } });
+      paymentLinkUrl = (await issuePaymentLink(order.id, unit.id)).url;
     } catch (e) {
-      console.error("InfinityPay link generation failed:", e);
+      // O pedido já existe: a equipe reenvia o link pelo painel ("Cobrar"). O cliente é avisado na tela.
+      paymentLinkFailed = true;
+      console.error("[pagamento] link de pagamento não gerado, pedido", order.id, e);
     }
   }
 
@@ -377,7 +377,7 @@ export async function createOrder(input: CreateOrderInput) {
   emitAdminEvent({ unitId: unit.id, type: "order_new", orderId: order.id, orderNumber: order.number, customerName: order.customer.name });
 
   const { _items, ...result } = order;
-  return { ...result, paymentLinkUrl };
+  return { ...result, paymentLinkUrl, paymentLinkFailed };
 }
 
 /** Localiza ou cria o cliente pelo telefone dentro da unidade (checkout de visitante / WhatsApp). */
