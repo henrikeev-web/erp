@@ -78,4 +78,45 @@ login(){ C=$(mktemp); T=$(curl -s -c $C $B/api/auth/csrf | python3 -I -c "import
 for i in 1 2 3 4 5; do login admin@banguelas.com.br errada123 >/dev/null; done
 ok "conta bloqueada após 5 erros (senha certa também é recusada)" "$(login admin@banguelas.com.br admin123)" 0
 
+echo "== revogação de sessão de staff"
+SJ=$(mktemp)
+slogin(){ T=$(curl -s -c $SJ $B/api/auth/csrf | python3 -I -c "import json,sys;print(json.load(sys.stdin)['csrfToken'])"); curl -s -b $SJ -c $SJ -o /dev/null -X POST $B/api/auth/callback/credentials -d "csrfToken=$T&email=$1&password=$2&json=true"; }
+sess(){ curl -s -b $SJ $B/api/auth/session; }
+api(){ curl -s -b $SJ -o /dev/null -w '%{http_code}' $B/api/clientes; }
+# conta própria para não colidir com o bloqueio de força bruta do admin do teste acima
+psql_ $DB "insert into \"User\"(id,\"unitId\",name,email,\"passwordHash\",role,active,\"sessionVersion\",\"createdAt\",\"updatedAt\") select 'u-rev',\"unitId\",'Rev','rev@x.com',\"passwordHash\",'ADMIN',true,0,now(),now() from \"User\" where email='admin@banguelas.com.br'"
+psql_ $DB "update \"User\" set \"passwordHash\"='$(node -e "console.log(require('bcryptjs').hashSync('Revoga-123456',10))")' where id='u-rev'"
+slogin rev@x.com Revoga-123456
+ok "sessão válida" "$(sess | grep -c '"role":"ADMIN"')" 1
+ok "API do painel responde 200" "$(api)" 200
+psql_ $DB "update \"User\" set active=false where id='u-rev'"
+ok "usuário desativado: sessão cai na hora" "$(sess | grep -c '"user"')" 0
+ok "usuário desativado: API recusa (401)" "$(api)" 401
+psql_ $DB "update \"User\" set active=true where id='u-rev'"
+ok "reativado: a mesma sessão volta" "$(api)" 200
+psql_ $DB "update \"User\" set role='STAFF' where id='u-rev'"
+ok "papel vem do banco (rebaixado para STAFF)" "$(sess | grep -c '"role":"STAFF"')" 1
+ok "rebaixado: rota de ADMIN passa a recusar" "$(curl -s -b $SJ -o /dev/null -w '%{http_code}' $B/api/financeiro/resumo)" 401
+psql_ $DB "update \"User\" set role='ADMIN' where id='u-rev'"
+psql_ $DB "update \"User\" set \"sessionVersion\"=\"sessionVersion\"+1 where id='u-rev'"
+ok "sessionVersion mudou (senha trocada/revogado): sessão cai" "$(sess | grep -c '"user"')" 0
+slogin rev@x.com Revoga-123456
+ok "novo login após a revogação funciona" "$(sess | grep -c '"role":"ADMIN"')" 1
+# troca de senha pela API encerra a própria sessão
+CODE=$(curl -s -b $SJ -o /dev/null -w '%{http_code}' -X POST $B/api/conta/senha -H 'content-type: application/json' -d '{"currentPassword":"Revoga-123456","newPassword":"Outra-senha-9876"}')
+ok "troca de senha pela API" "$CODE" 200
+ok "após trocar a senha a sessão antiga cai" "$(sess | grep -c '"user"')" 0
+slogin rev@x.com Outra-senha-9876
+ok "login com a senha nova" "$(sess | grep -c '"role":"ADMIN"')" 1
+# cliente: conta desativada pelo painel perde a sessão na hora
+CH=$(node -e "console.log(require('bcryptjs').hashSync('Cliente-123456',10))")
+UNIT=$(psql_ $DB "select id from \"Unit\" where slug='matriz'"); BRAND=$(psql_ $DB "select \"brandId\" from \"Unit\" where slug='matriz'")
+psql_ $DB "insert into \"Customer\"(id,\"brandId\",\"unitId\",name,phone,\"passwordHash\",active,type,\"updatedAt\") values ('c-rev','$BRAND','$UNIT','Cli Rev','17988887777','$CH',true,'RETAIL',now())"
+T=$(curl -s -c $SJ $B/api/auth/csrf | python3 -I -c "import json,sys;print(json.load(sys.stdin)['csrfToken'])")
+curl -s -b $SJ -c $SJ -o /dev/null -X POST $B/api/auth/callback/customer-credentials -d "csrfToken=$T&identifier=17988887777&password=Cliente-123456&json=true"
+ok "cliente: sessão válida" "$(sess | grep -c '"role":"CUSTOMER"')" 1
+psql_ $DB "update \"Customer\" set active=false where id='c-rev'"
+ok "cliente desativado: sessão cai na hora" "$(sess | grep -c '"user"')" 0
+rm -f $SJ
+
 echo; [ $FAILS = 0 ] && echo "TUDO OK" || echo "$FAILS FALHA(S)"; exit $FAILS

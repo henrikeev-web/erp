@@ -35,7 +35,8 @@ function loginGuard(accountKey: string, headers: Record<string, unknown> | undef
 }
 
 export const authOptions: NextAuthOptions = {
-  session: { strategy: "jwt" },
+  // Revogação é imediata (o callback `session` confere o banco); este prazo só limita um token esquecido por aí
+  session: { strategy: "jwt", maxAge: 7 * 24 * 60 * 60 },
   pages: {
     signIn: "/admin/login",
   },
@@ -68,6 +69,7 @@ export const authOptions: NextAuthOptions = {
           email: user.email,
           role: user.role,
           unitId: user.unitId ?? undefined,
+          sv: user.sessionVersion ?? 0,
         };
       },
     }),
@@ -169,18 +171,38 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.role = (user as { role?: string }).role;
         token.id = user.id;
-        const uu = user as { unitId?: string };
+        const uu = user as { unitId?: string; sv?: number };
         if (uu.unitId) token.unitId = uu.unitId;
+        if (uu.sv !== undefined) token.sv = uu.sv;
         const u = user as { phone?: string };
         if (u.phone) token.phone = u.phone;
       }
       return token;
     },
-    session({ session, token }) {
+    // Roda a CADA getServerSession/useSession. Para staff e cliente confere o banco: usuário desativado, senha trocada
+    // (sessionVersion) ou conta apagada derrubam a sessão na hora, e papel/unidade vêm do banco, nunca do token.
+    // Sessão revogada devolve só { expires }: todo `session?.user` do sistema passa a falhar.
+    async session({ session, token }) {
+      const dead = { expires: session.expires } as typeof session;
+      const role = token.role as string | undefined;
+      let userRole = role;
+      let unitId = token.unitId as string | undefined;
+
+      if (role === "SUPER_ADMIN" || role === "ADMIN" || role === "STAFF") {
+        const u = await prisma.user.findUnique({ where: { id: token.id as string }, select: { active: true, role: true, unitId: true, sessionVersion: true } });
+        if (!u || !u.active || u.sessionVersion !== (token.sv ?? 0)) return dead;
+        userRole = u.role;
+        unitId = u.unitId;
+      } else if (role === "CUSTOMER") {
+        const c = await prisma.customer.findUnique({ where: { id: token.id as string }, select: { active: true, unitId: true } });
+        if (!c || !c.active) return dead;
+        unitId = c.unitId;
+      }
+
       if (session.user) {
         session.user.id = token.id as string;
-        session.user.unitId = token.unitId as string | undefined;
-        (session.user as { role?: string }).role = token.role as string;
+        session.user.unitId = unitId;
+        (session.user as { role?: string }).role = userRole;
         if (token.phone) {
           (session.user as { phone?: string }).phone = token.phone as string;
         }

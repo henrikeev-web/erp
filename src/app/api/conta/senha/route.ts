@@ -31,6 +31,6 @@ export async function POST(req: NextRequest) {
   const problem = checkNewPassword(newPassword, { email: user.email, current: currentPassword });
   if (problem) return NextResponse.json({ error: problem }, { status: 400 });
 
-  await prisma.user.update({ where: { id: user.id }, data: { passwordHash: await bcrypt.hash(newPassword, 10) } });
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash: await bcrypt.hash(newPassword, 10), sessionVersion: { increment: 1 } } }); // derruba as outras sessões abertas (e esta: o front sai e pede o login de novo)
   return NextResponse.json({ ok: true });
 }

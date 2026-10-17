@@ -19,6 +19,7 @@ declare module "next-auth" {
     role?: string;
     phone?: string;
     unitId?: string;
+    sv?: number;
     googleId?: string;
     googleEmail?: string;
   }
@@ -30,6 +31,7 @@ declare module "next-auth/jwt" {
     role?: string;
     phone?: string;
     unitId?: string;
+    sv?: number;
     googleId?: string;
     googleEmail?: string;
   }

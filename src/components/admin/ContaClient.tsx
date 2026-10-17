@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import axios from "axios";
+import { signOut } from "next-auth/react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Field, errMsg } from "@/components/admin/financeiro/shared";
@@ -26,6 +27,8 @@ export default function ContaClient({ name, email }: { name: string | null; emai
     try {
       await axios.post("/api/conta/senha", { currentPassword: current, newPassword: next });
       setDone(true); setCurrent(""); setNext(""); setConfirm("");
+      // A troca encerra todas as sessões abertas (inclusive esta): volta ao login com a senha nova
+      setTimeout(() => signOut({ callbackUrl: "/admin/login" }), 1800);
     } catch (e) { setError(errMsg(e)); }
     setSaving(false);
   }
@@ -44,7 +47,7 @@ export default function ContaClient({ name, email }: { name: string | null; emai
         <Field label="Confirmar nova senha"><Input type={type} value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" /></Field>
         <label className="flex items-center gap-2 text-sm text-zinc-600"><input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} /> Mostrar senhas</label>
         {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
-        {done && <div className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">Senha alterada com sucesso.</div>}
+        {done && <div className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">Senha alterada! Por segurança, todas as sessões foram encerradas. Entrando de novo…</div>}
         <div className="flex justify-end"><Button className="bg-orange-500 hover:bg-orange-600" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Salvar nova senha"}</Button></div>
       </div>
     </div>

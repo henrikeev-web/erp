@@ -109,6 +109,8 @@ model User {
   passwordHash  String?
   role          UserRole  @default(STAFF)
   active        Boolean   @default(true)
+  // Sobe quando a senha muda ou o acesso é revogado: sessões abertas (JWT) com número antigo deixam de valer
+  sessionVersion Int      @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
