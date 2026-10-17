@@ -236,14 +236,19 @@ function wrapSoap(signedXml: string): string {
 </soapenv:Envelope>`;
 }
 
+import { isGissUrl } from "./sanitize";
+
 async function soapCall(body: string, pfxBuffer: Buffer, password: string, c: NfseConfigData): Promise<string> {
   const isHomolog = c.ambiente !== "producao";
   const wsUrl = isHomolog ? c.wsHomologUrl : c.wsUrl;
 
+  // O certificado A1 e o XML (CPFs) só vão para a GISS, mesmo que a configuração no banco seja alterada
+  if (!isGissUrl(wsUrl)) throw new Error("URL do webservice NFS-e fora do domínio giss.com.br");
+
   const agent = new https.Agent({
     pfx: pfxBuffer,
     passphrase: password,
-    rejectUnauthorized: !isHomolog,
+    rejectUnauthorized: true, // sempre valida o certificado do servidor (inclusive homologação)
   });
 
   const res = await axios.post<string>(wsUrl, body, {

@@ -14,7 +14,7 @@ psql_ postgres "drop database if exists $DB" >/dev/null; psql_ postgres "create 
 npx prisma db push >/dev/null 2>&1 || { echo 'FALHA: prisma db push'; exit 99; }
 npx tsx prisma/seed.ts >/dev/null 2>&1 || { echo 'FALHA: seed'; exit 99; }
 psql_ $DB 'update "StockItem" set quantity=500'
-(env NEXTAUTH_URL=$B NEXTAUTH_SECRET=teste BASE_DOMAIN= AUTH_HOST= COOKIE_DOMAIN= nohup npx next start -H 127.0.0.1 -p $PORT >/dev/null 2>&1 &)
+(env WHATSAPP_API_KEY=chave-de-teste-123 NEXTAUTH_URL=$B NEXTAUTH_SECRET=teste BASE_DOMAIN= AUTH_HOST= COOKIE_DOMAIN= nohup npx next start -H 127.0.0.1 -p $PORT >/dev/null 2>&1 &)
 for i in $(seq 1 30); do curl -s -o /dev/null $B/api/unit && break; sleep 1; done
 
 echo "== pagamento (InfinitePay simulada)"; npx tsx scripts/test-payment-e2e.ts 2>&1 | grep -E "^(ok|FAIL)|tudo ok|FALHA" | grep -v "^ok" | sed 's/^/   /'; [ "${PIPESTATUS[0]}" = 0 ] || FAILS=$((FAILS+1))
@@ -117,6 +117,46 @@ curl -s -b $SJ -c $SJ -o /dev/null -X POST $B/api/auth/callback/customer-credent
 ok "cliente: sessão válida" "$(sess | grep -c '"role":"CUSTOMER"')" 1
 psql_ $DB "update \"Customer\" set active=false where id='c-rev'"
 ok "cliente desativado: sessão cai na hora" "$(sess | grep -c '"user"')" 0
+rm -f $SJ
+
+echo "== validação de entrada do painel"
+slogin2(){ T=$(curl -s -c $SJ $B/api/auth/csrf | python3 -I -c "import json,sys;print(json.load(sys.stdin)['csrfToken'])"); curl -s -b $SJ -c $SJ -o /dev/null -X POST $B/api/auth/callback/credentials -d "csrfToken=$T&email=$1&password=$2&json=true"; }
+SJ=$(mktemp); slogin2 rev@x.com Outra-senha-9876
+pj(){ curl -s -b $SJ -o /dev/null -w '%{http_code}' -X "$1" "$B$2" -H 'content-type: application/json' -d "$3"; }
+# produto: campos fora da lista são ignorados; valores inválidos recusados
+PID2=$(psql_ $DB "select id from \"Product\" where active and kind='SIMPLE' limit 1")
+ok "produto: preço negativo recusado" "$(pj PUT /api/produtos/$PID2 '{"price":-5}')" 400
+ok "produto: preço texto recusado" "$(pj PUT /api/produtos/$PID2 '{"price":"abc"}')" 400
+ok "produto: sourceProductId/priceCustom do corpo são ignorados" "$(pj PUT /api/produtos/$PID2 '{"name":"Nome ok","sourceProductId":"hack","priceCustom":true,"unitId":"x"}')" 200
+ok "produto: sourceProductId NÃO foi gravado" "$(psql_ $DB "select count(*) from \"Product\" where id='$PID2' and (\"sourceProductId\"='hack' or \"priceCustom\")")" 0
+# cupom: usedCount nunca vem do corpo
+curl -s -b $SJ -o /dev/null -X POST $B/api/cupons -H 'content-type: application/json' -d '{"type":"FIXED","code":"teste10","value":10}'
+CID=$(psql_ $DB "select id from \"Coupon\" where code='TESTE10'")
+ok "cupom: criado em maiúsculas" "$([ -n "$CID" ] && echo sim)" sim
+ok "cupom: PATCH com usedCount/unitId é aceito mas ignora esses campos" "$(pj PATCH /api/cupons/$CID '{"active":false,"usedCount":0,"unitId":"x","value":-1}')" 400
+ok "cupom: PATCH válido" "$(pj PATCH /api/cupons/$CID '{"active":false,"usedCount":999,"unitId":"x"}')" 200
+ok "cupom: usedCount não mudou" "$(psql_ $DB "select \"usedCount\" from \"Coupon\" where id='$CID'")" 0
+ok "cupom: % acima de 100 recusado" "$(pj POST /api/cupons '{"type":"PERCENTAGE","code":"x100","value":150}')" 400
+# estoque
+SID=$(psql_ $DB "select id from \"StockItem\" limit 1")
+ok "estoque: quantidade negativa recusada" "$(pj POST /api/estoque/$SID/movimentar '{"type":"IN","quantity":-5}')" 400
+ok "estoque: quantidade texto recusada" "$(pj POST /api/estoque/$SID/movimentar '{"type":"IN","quantity":"abc"}')" 400
+BEFORE=$(psql_ $DB "select quantity from \"StockItem\" where id='$SID'")
+ok "estoque: entrada válida" "$(pj POST /api/estoque/$SID/movimentar '{"type":"IN","quantity":7}')" 200
+ok "estoque: saldo somou 7" "$(psql_ $DB "select quantity from \"StockItem\" where id='$SID'")" $((BEFORE+7))
+# checkout: limites de tamanho (IP diferente para não cair no rate limit)
+BIG=$(python3 -I -c "print('a'*600)")
+ok "checkout: observação gigante recusada (422)" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/checkout -H 'content-type: application/json' -H 'x-forwarded-for: 7.7.7.7' -d "{\"customer\":{\"name\":\"X Y\",\"phone\":\"17999990000\"},\"type\":\"PICKUP\",\"paymentMethod\":\"PIX\",\"notes\":\"$BIG\",\"items\":[{\"productId\":\"$PID2\",\"quantity\":1}]}")" 422
+ok "checkout: quantidade absurda recusada (422)" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/checkout -H 'content-type: application/json' -H 'x-forwarded-for: 7.7.7.8' -d "{\"customer\":{\"name\":\"X Y\",\"phone\":\"17999990000\"},\"type\":\"PICKUP\",\"paymentMethod\":\"PIX\",\"items\":[{\"productId\":\"$PID2\",\"quantity\":999999}]}")" 422
+# WhatsApp (n8n): Bearer obrigatório e comparado em tempo constante
+ok "whatsapp sem chave: 401" "$(curl -s -o /dev/null -w '%{http_code}' $B/api/whatsapp/cardapio)" 401
+ok "whatsapp chave errada: 401" "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer chave-errada' $B/api/whatsapp/cardapio)" 401
+ok "whatsapp chave de tamanho diferente: 401" "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer x' $B/api/whatsapp/cardapio)" 401
+ok "whatsapp chave certa: 200" "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer chave-de-teste-123' $B/api/whatsapp/cardapio)" 200
+# NFS-e: o webservice só pode ser da GISS
+ok "NFS-e: URL fora da GISS recusada" "$(pj PUT /api/escola/config '{"cnpj":"1","wsUrl":"https://evil.example.com/ws","wsHomologUrl":"https://ws-ficticio.giss.com.br/x"}')" 400
+ok "NFS-e: URL http recusada" "$(pj PUT /api/escola/config '{"cnpj":"1","wsUrl":"http://ws-sjrp.giss.com.br/x","wsHomologUrl":"https://ws-ficticio.giss.com.br/x"}')" 400
+ok "NFS-e: URL da GISS aceita" "$(pj PUT /api/escola/config '{"cnpj":"1","wsUrl":"https://ws-sjrp.giss.com.br/service-ws/nf/nfse-ws","wsHomologUrl":"https://ws-ficticio.giss.com.br/x"}')" 200
 rm -f $SJ
 
 echo; [ $FAILS = 0 ] && echo "TUDO OK" || echo "$FAILS FALHA(S)"; exit $FAILS

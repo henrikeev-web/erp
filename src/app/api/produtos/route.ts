@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { scheduleCatalogSync } from "@/lib/catalog-sync";
 import { requireStaff, resolveUnit } from "@/lib/api-auth";
 import { parseInternalFields } from "@/lib/product-fields";
+import { parseProductBasics } from "@/lib/sanitize";
 import { applyTierPricing, getSessionPricing, productOmitFor } from "@/lib/pricing";
 import type { PricingTier } from "@/lib/pricing";
 import { withComboData } from "@/lib/combo-data";
@@ -77,11 +78,14 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const internal = parseInternalFields(body);
     if ("error" in internal) return NextResponse.json({ error: internal.error }, { status: 400 });
+    const basics = parseProductBasics(body);
+    if ("error" in basics) return NextResponse.json({ error: basics.error }, { status: 400 });
+    if (!basics.data.name || basics.data.price === undefined) return NextResponse.json({ error: "Nome e preço são obrigatórios" }, { status: 400 });
     const {
       categoryId, name, description, price, priceOriginal,
       sku, ageMin, ageMax, weight, servings, ingredients, allergens,
       frozen, active, featured, order,
-    } = body;
+    } = basics.data as Record<string, any>;
 
     // A categoria precisa ser da mesma unidade
     if (categoryId) {

@@ -19,14 +19,14 @@ export async function GET() {
 }
 
 const createSchema = z.object({
-  label: z.string().default("Casa"),
-  cep: z.string().min(8),
-  street: z.string().min(2),
-  number: z.string().min(1),
-  complement: z.string().optional(),
-  neighborhood: z.string().min(2),
-  city: z.string().min(2),
-  state: z.string().default("SP"),
+  label: z.string().max(40).default("Casa"),
+  cep: z.string().min(8).max(12),
+  street: z.string().min(2).max(160),
+  number: z.string().min(1).max(20),
+  complement: z.string().max(100).optional(),
+  neighborhood: z.string().min(2).max(100),
+  city: z.string().min(2).max(100),
+  state: z.string().max(2).default("SP"),
   deliveryZoneId: z.string().optional(),
   isDefault: z.boolean().default(false),
 });

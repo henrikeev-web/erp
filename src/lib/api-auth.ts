@@ -48,7 +48,9 @@ export async function requireStaff(roles: string[] = STAFF_ROLES): Promise<{ uni
 export function whatsappAuthOk(req: Request): boolean {
   const key = process.env.WHATSAPP_API_KEY;
   if (!key) return process.env.NODE_ENV !== "production";
-  return req.headers.get("authorization") === `Bearer ${key}`;
+  const got = Buffer.from(req.headers.get("authorization") ?? "");
+  const want = Buffer.from(`Bearer ${key}`);
+  return got.length === want.length && timingSafeEqual(got, want);
 }
 
 /** O bot chama um único host, então informa a unidade explicitamente (?unit= ou body.unitSlug). */

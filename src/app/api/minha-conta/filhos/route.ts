@@ -18,9 +18,9 @@ export async function GET() {
 }
 
 const createSchema = z.object({
-  name: z.string().min(2),
-  birthDate: z.string(),
-  notes: z.string().optional(),
+  name: z.string().min(2).max(120),
+  birthDate: z.string().max(40),
+  notes: z.string().max(300).optional(),
 });
 
 export async function POST(req: Request) {

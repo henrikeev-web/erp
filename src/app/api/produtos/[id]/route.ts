@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/api-auth";
 import { parseInternalFields } from "@/lib/product-fields";
+import { parseProductBasics } from "@/lib/sanitize";
 import { scheduleCatalogSync } from "@/lib/catalog-sync";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -21,11 +22,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (auth instanceof NextResponse) return auth;
   const { id } = await params;
   try {
-    // Campos de escopo/controle nunca vêm do cliente
-    const { id: _id, unitId: _u, brandId: _b, createdAt: _c, updatedAt: _up, kind: _k, comboSize: _cs, comboItems: _ci, ...data } = await req.json();
+    // Só campos permitidos e validados (nada de unitId, sourceProductId, priceCustom, kind… vindo do corpo)
+    const body = await req.json();
+    const basics = parseProductBasics(body);
+    if ("error" in basics) return NextResponse.json({ error: basics.error }, { status: 400 });
+    const data: Record<string, any> = basics.data;
 
     // Campos internos validados e normalizados (vazio vira null)
-    const internal = parseInternalFields(data);
+    const internal = parseInternalFields(body);
     if ("error" in internal) return NextResponse.json({ error: internal.error }, { status: 400 });
     Object.assign(data, internal.data);
 

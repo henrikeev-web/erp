@@ -4,9 +4,9 @@ import { getCustomerSession } from "@/lib/customer-auth";
 import { z } from "zod";
 
 const patchSchema = z.object({
-  name: z.string().min(2).optional(),
-  birthDate: z.string().optional(),
-  notes: z.string().optional(),
+  name: z.string().min(2).max(120).optional(),
+  birthDate: z.string().max(40).optional(),
+  notes: z.string().max(300).optional(),
 });
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {

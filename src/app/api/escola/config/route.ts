@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/api-auth";
 import { getCertStatus } from "@/lib/nfse";
+import { isGissUrl } from "@/lib/sanitize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +40,12 @@ export async function PUT(req: NextRequest) {
     wsUrl:         body.wsUrl         ?? "https://ws-sjrp.giss.com.br/service-ws/nf/nfse-ws",
     wsHomologUrl:  body.wsHomologUrl  ?? "https://ws-ficticio.giss.com.br/service-ws/nf/nfse-ws",
   };
+
+  for (const u of [data.wsUrl, data.wsHomologUrl]) {
+    if (!isGissUrl(u)) return NextResponse.json({ error: "URL do webservice inválida: use https e um endereço giss.com.br" }, { status: 400 });
+  }
+  if (!["homologacao", "producao"].includes(data.ambiente)) return NextResponse.json({ error: "Ambiente inválido" }, { status: 400 });
+  if (!(data.aliquotaIss >= 0 && data.aliquotaIss <= 1)) return NextResponse.json({ error: "Alíquota de ISS inválida" }, { status: 400 });
 
   const config = await (prisma.nfseConfig as any).upsert({
     where:  { id: "singleton" },

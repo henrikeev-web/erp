@@ -6,9 +6,9 @@ import { resolveUnit } from "@/lib/api-auth";
 import { clientIp, hit, tooManyRequests } from "@/lib/rate-limit";
 
 const schema = z.object({
-  name: z.string().min(2),
-  phone: z.string().min(10),
-  email: z.string().email().optional().or(z.literal("")),
+  name: z.string().trim().min(2).max(120),
+  phone: z.string().min(10).max(20),
+  email: z.string().email().max(160).optional().or(z.literal("")),
   password: z.string().min(8).max(72), // 72 = limite do bcrypt
 });
 

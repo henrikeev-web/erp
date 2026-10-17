@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/api-auth";
+import { parseCoupon } from "@/lib/sanitize";
 
 export async function GET() {
   const auth = await requireStaff();
@@ -20,31 +21,20 @@ export async function POST(req: NextRequest) {
   const { unit } = auth;
 
   try {
-    const body = await req.json();
-    if (!["PERCENTAGE", "FIXED", "FREE_DELIVERY"].includes(body.type)) return NextResponse.json({ error: "Tipo de cupom inválido" }, { status: 400 });
-    if (!body.code?.trim()) return NextResponse.json({ error: "Informe o código do cupom" }, { status: 400 });
-    const freeDelivery = body.type === "FREE_DELIVERY";
-    const value = freeDelivery ? 0 : parseFloat(body.value);
-    if (!Number.isFinite(value) || (!freeDelivery && value <= 0)) return NextResponse.json({ error: "Valor do cupom inválido" }, { status: 400 });
+    const parsed = parseCoupon(await req.json(), false);
+    if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+    const d = parsed.data;
 
     const coupon = await prisma.coupon.create({
       data: {
         brandId: unit.brandId,
         unitId: unit.id,
-        code: body.code.toUpperCase().trim(),
-        description: body.description || null,
-        type: body.type,
-        value,
-        minOrder: parseFloat(body.minOrder ?? 0),
-        maxDiscount: !freeDelivery && body.maxDiscount ? parseFloat(body.maxDiscount) : null,
-        maxUses: body.maxUses ? parseInt(body.maxUses) : null,
-        validFrom: body.validFrom ? new Date(body.validFrom) : new Date(),
-        validTo: body.validTo ? new Date(body.validTo) : null,
-        ageMin: body.ageMin ? parseInt(body.ageMin) : null,
-        ageMax: body.ageMax ? parseInt(body.ageMax) : null,
-        firstOrderOnly: body.firstOrderOnly ?? false,
+        ...d,
+        minOrder: d.minOrder ?? 0,
+        validFrom: d.validFrom ?? new Date(),
+        firstOrderOnly: d.firstOrderOnly ?? false,
         active: true,
-      },
+      } as any,
     });
     return NextResponse.json(coupon, { status: 201 });
   } catch (err: any) {

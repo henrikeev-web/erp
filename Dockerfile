@@ -1,6 +1,6 @@
 FROM node:22-alpine
 
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat su-exec
 
 WORKDIR /app
 
@@ -23,5 +23,7 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 EXPOSE 3000
 
-# Aplica o schema no banco e inicia o servidor
-CMD ["sh", "-c", "npx prisma db push && npm start"]
+# Entrypoint: ajusta permissões dos uploads (volume) e inicia o app como usuário "node" (sem root)
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh && chown -R node:node /app/.next /app/public
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

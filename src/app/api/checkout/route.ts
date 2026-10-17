@@ -12,33 +12,33 @@ import { createOrder, findOrCreateCustomerByPhone, OrderError } from "@/lib/orde
 const schema = z.object({
   // Obrigatório para visitante; ignorado quando há cliente logado na unidade
   customer: z.object({
-    name: z.string().min(2),
-    phone: z.string().min(10),
-    email: z.string().email().optional().or(z.literal("")),
+    name: z.string().trim().min(2).max(120),
+    phone: z.string().min(10).max(20),
+    email: z.string().email().max(160).optional().or(z.literal("")),
   }).optional(),
-  savedAddressId: z.string().optional(),
+  savedAddressId: z.string().max(64).optional(),
   address: z.object({
-    cep: z.string(),
-    street: z.string(),
-    number: z.string(),
-    complement: z.string().optional(),
-    neighborhood: z.string(),
-    city: z.string(),
-    state: z.string().default("SP"),
+    cep: z.string().max(12),
+    street: z.string().max(160),
+    number: z.string().max(20),
+    complement: z.string().max(100).optional(),
+    neighborhood: z.string().max(100),
+    city: z.string().max(100),
+    state: z.string().max(2).default("SP"),
   }).optional(),
-  deliveryZoneId: z.string().optional(),
+  deliveryZoneId: z.string().max(64).optional(),
   type: z.enum(["DELIVERY", "PICKUP", "DINE_IN"]).default("DELIVERY"),
-  notes: z.string().optional(),
-  couponCode: z.string().optional(),
+  notes: z.string().max(500).optional(),
+  couponCode: z.string().max(40).optional(),
   paymentMethod: z.enum(["CASH", "PIX", "CREDIT_CARD", "DEBIT_CARD", "VOUCHER", "ONLINE_CREDIT", "ONLINE_PIX", "ONLINE_BOLETO", "INVOICE"]),
   invoiceDays: z.number().int().optional(), // só faturado (revendedor)
-  changeAmount: z.number().optional(),
+  changeAmount: z.number().min(0).max(100_000).optional(),
   items: z.array(z.object({
-    productId: z.string(),
-    quantity: z.number().int().min(1),
-    notes: z.string().optional(),
-    combo: z.array(z.object({ productId: z.string(), quantity: z.number().int().min(0) })).optional(), // escolha dentro do combo
-  })).min(1),
+    productId: z.string().max(64),
+    quantity: z.number().int().min(1).max(1000),
+    notes: z.string().max(300).optional(),
+    combo: z.array(z.object({ productId: z.string().max(64), quantity: z.number().int().min(0).max(1000) })).max(200).optional(), // escolha dentro do combo
+  })).min(1).max(100),
 });
 
 // Checkout público: cliente, endereço e pedido numa única chamada validada no servidor.
