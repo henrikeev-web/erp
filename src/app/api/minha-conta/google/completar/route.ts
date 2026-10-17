@@ -27,8 +27,10 @@ export async function POST(req: Request) {
   const { getToken } = await import("next-auth/jwt");
   const { cookies } = await import("next/headers");
   const jar = await cookies();
-  const cookieName = process.env.COOKIE_DOMAIN ? "__Secure-next-auth.session-token" : "next-auth.session-token";
-  const token = await getToken({ req: { cookies: Object.fromEntries(jar.getAll().map((c) => [c.name, c.value])), headers: {} } as never, cookieName });
+  // Mesmo nome de cookie que o next-auth usa: com NEXTAUTH_URL https (ou COOKIE_DOMAIN) é o "__Secure-"
+  const secure = !!process.env.COOKIE_DOMAIN || (process.env.NEXTAUTH_URL ?? "").startsWith("https://");
+  const cookieName = secure ? "__Secure-next-auth.session-token" : "next-auth.session-token";
+  const token = await getToken({ req: { cookies: Object.fromEntries(jar.getAll().map((c) => [c.name, c.value])), headers: {} } as never, cookieName, secureCookie: secure });
   const googleId = token?.googleId;
   if (!googleId || !u.email) return NextResponse.json({ error: "Sessão inválida" }, { status: 401 });
 
