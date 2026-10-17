@@ -55,4 +55,27 @@ OID=$(psql_ $DB "select id from \"Order\" limit 1")
 ok "webhook sem corpo" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/pagamentos/webhook -H 'content-type: application/json' -d '{}')" 400
 ok "webhook de pedido inexistente" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/pagamentos/webhook -H 'content-type: application/json' -d '{"order_nsu":"x","transaction_nsu":"y","invoice_slug":"z"}')" 404
 
+echo "== cabeçalhos de segurança"
+H=$(curl -s -D - -o /dev/null $B/cardapio)
+for h in "content-security-policy" "x-frame-options: DENY" "x-content-type-options: nosniff" "referrer-policy" "strict-transport-security" "permissions-policy"; do ok "header $h" "$(echo "$H" | grep -ic "^$h")" 1; done
+ok "sem X-Powered-By" "$(echo "$H" | grep -ic '^x-powered-by')" 0
+
+echo "== CSP no navegador (Chromium, em container isolado: não instala nada no host)"
+docker run --rm --ipc=host --network host -v "$PWD":/work:ro -w /work -e BASE=$B mcr.microsoft.com/playwright:v1.60.0-noble npx tsx scripts/test-csp.ts 2>&1 | grep -E "^(ok|FAIL)|tudo ok|violações|Refused" | sed 's/^/   /'; [ "${PIPESTATUS[0]}" = 0 ] || FAILS=$((FAILS+1))
+
+echo "== rate limit"
+code(){ curl -s -o /dev/null -w '%{http_code}' "$@"; }
+for i in $(seq 1 6); do LAST=$(code -X POST $B/api/minha-conta/register -H 'content-type: application/json' -d '{}'); done
+ok "register: 6ª tentativa na hora é 429" "$LAST" 429
+for i in $(seq 1 21); do LAST=$(code -X POST $B/api/checkout -H 'content-type: application/json' -d '{}'); done
+ok "checkout: 21ª tentativa em 10 min é 429" "$LAST" 429
+ok "429 traz Retry-After" "$(curl -s -D - -o /dev/null -X POST $B/api/checkout -H 'content-type: application/json' -d '{}' | grep -ic '^retry-after')" 1
+for i in $(seq 1 31); do LAST=$(code -X POST $B/api/cupons/validar -H 'content-type: application/json' -d '{"code":"X","subtotal":10}'); done
+ok "cupom: 31ª tentativa é 429" "$LAST" 429
+ok "cupom com corpo inválido não derruba (400)" "$(code -X POST $B/api/cupons/validar -H 'content-type: application/json' -d '{"code":123}' -H 'x-forwarded-for: 9.9.9.9')" 400
+# força bruta no login do painel: 5 senhas erradas bloqueiam a conta, mesmo com a senha certa depois
+login(){ C=$(mktemp); T=$(curl -s -c $C $B/api/auth/csrf | python3 -I -c "import json,sys;print(json.load(sys.stdin)['csrfToken'])"); curl -s -b $C -c $C -o /dev/null -X POST $B/api/auth/callback/credentials -d "csrfToken=$T&email=$1&password=$2&json=true"; curl -s -b $C $B/api/auth/session | grep -c ADMIN; rm -f $C; }
+for i in 1 2 3 4 5; do login admin@banguelas.com.br errada123 >/dev/null; done
+ok "conta bloqueada após 5 erros (senha certa também é recusada)" "$(login admin@banguelas.com.br admin123)" 0
+
 echo; [ $FAILS = 0 ] && echo "TUDO OK" || echo "$FAILS FALHA(S)"; exit $FAILS

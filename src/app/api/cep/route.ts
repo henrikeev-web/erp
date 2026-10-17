@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchCep } from "@/lib/cep";
 import { prisma } from "@/lib/prisma";
 import { resolveUnit } from "@/lib/api-auth";
+import { clientIp, hit, tooManyRequests } from "@/lib/rate-limit";
 import { geocodeCep } from "@/lib/geocoding";
 import { haversineDistance, WAREHOUSE_LAT, WAREHOUSE_LNG } from "@/lib/haversine";
 
 export async function GET(req: NextRequest) {
+  const rl = hit(`cep:${clientIp(req.headers)}`, 60, 10 * 60_000); // cada consulta chama ViaCEP/Nominatim
+  if (!rl.ok) return tooManyRequests(rl);
   const unit = await resolveUnit();
   if (unit instanceof NextResponse) return unit;
 

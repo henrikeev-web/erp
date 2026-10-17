@@ -7,6 +7,7 @@ import { getCurrentUnit, getUnitBySlug } from "./unit";
 import { LOGIN_COOKIE, parseLoginCookie } from "./google-login";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { clearKey, clientIp, isBlocked, recordFailure } from "./rate-limit";
 
 const adminLoginSchema = z.object({
   email: z.string().email(),
@@ -17,6 +18,21 @@ const customerLoginSchema = z.object({
   identifier: z.string().min(3),
   password: z.string().min(6),
 });
+
+// Força bruta: 5 senhas erradas por conta e 20 por IP a cada 15 min. Sucesso zera o contador da conta.
+// Erro "RATE_LIMITED" chega ao front como result.error (as telas mostram a mensagem própria).
+const LOGIN_WINDOW = 15 * 60_000;
+const LOGIN_MAX_PER_ACCOUNT = 5;
+const LOGIN_MAX_PER_IP = 20;
+
+function loginGuard(accountKey: string, headers: Record<string, unknown> | undefined) {
+  const ipKey = `login-ip:${clientIp((headers ?? {}) as Record<string, string | string[] | undefined>)}`;
+  if (!isBlocked(accountKey, LOGIN_MAX_PER_ACCOUNT).ok || !isBlocked(ipKey, LOGIN_MAX_PER_IP).ok) throw new Error("RATE_LIMITED");
+  return {
+    fail() { recordFailure(accountKey, LOGIN_WINDOW); recordFailure(ipKey, LOGIN_WINDOW); },
+    success() { clearKey(accountKey); },
+  };
+}
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
@@ -31,18 +47,20 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Senha", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         const parsed = adminLoginSchema.safeParse(credentials);
         if (!parsed.success) return null;
 
+        const guard = loginGuard(`login-admin:${parsed.data.email.toLowerCase()}`, req?.headers);
         const user = await prisma.user.findUnique({
           where: { email: parsed.data.email },
         });
 
-        if (!user || !user.passwordHash || !user.active) return null;
+        if (!user || !user.passwordHash || !user.active) { guard.fail(); return null; }
 
         const valid = await bcrypt.compare(parsed.data.password, user.passwordHash);
-        if (!valid) return null;
+        if (!valid) { guard.fail(); return null; }
+        guard.success();
 
         return {
           id: user.id,
@@ -60,7 +78,7 @@ export const authOptions: NextAuthOptions = {
         identifier: { label: "Telefone ou Email", type: "text" },
         password: { label: "Senha", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         const parsed = customerLoginSchema.safeParse(credentials);
         if (!parsed.success) return null;
 
@@ -68,6 +86,7 @@ export const authOptions: NextAuthOptions = {
         if (!unit) return null;
 
         const identifier = parsed.data.identifier.trim();
+        const guard = loginGuard(`login-cust:${unit.id}:${identifier.toLowerCase()}`, req?.headers);
         const customer = await prisma.customer.findFirst({
           where: {
             unitId: unit.id,
@@ -76,10 +95,11 @@ export const authOptions: NextAuthOptions = {
           },
         });
 
-        if (!customer || !customer.passwordHash) return null;
+        if (!customer || !customer.passwordHash) { guard.fail(); return null; }
 
         const valid = await bcrypt.compare(parsed.data.password, customer.passwordHash);
-        if (!valid) return null;
+        if (!valid) { guard.fail(); return null; }
+        guard.success();
 
         return {
           id: customer.id,

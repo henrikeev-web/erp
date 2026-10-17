@@ -16,10 +16,10 @@ services:
     container_name: banguelas-db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres} # dev local; em servidor defina POSTGRES_PASSWORD no ambiente
       POSTGRES_DB: delivery_erp
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432" # só a própria máquina; nunca publicar o banco na rede
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -37,10 +37,10 @@ services:
     env_file: .env
     environment:
       # Sobrescreve o DATABASE_URL do .env para usar o hostname do container
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/delivery_erp
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/delivery_erp
       NODE_ENV: production
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000" # acesso pelo nginx (porta 80); a 3000 fica só local
     volumes:
       # Uploads persistidos em pasta local — sobrevive a reinstalação do Docker
       - ./public/uploads:/app/public/uploads

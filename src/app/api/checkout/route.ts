@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { resolveUnit } from "@/lib/api-auth";
+import { clientIp, hit, tooManyRequests } from "@/lib/rate-limit";
 import { getSessionPricing } from "@/lib/pricing";
 import { RESELLER_INVOICE_DAYS } from "@/lib/invoice-terms";
 import { createOrder, findOrCreateCustomerByPhone, OrderError } from "@/lib/order-service";
@@ -43,6 +44,10 @@ const schema = z.object({
 // Checkout público: cliente, endereço e pedido numa única chamada validada no servidor.
 // O cliente nunca informa customerId/addressId de terceiros.
 export async function POST(req: NextRequest) {
+  // Checkout anônimo cria cliente, endereço e pedido: limite por IP contra inundação de pedidos
+  const rl = hit(`checkout:${clientIp(req.headers)}`, 20, 10 * 60_000);
+  if (!rl.ok) return tooManyRequests(rl);
+
   const unit = await resolveUnit();
   if (unit instanceof NextResponse) return unit;
 

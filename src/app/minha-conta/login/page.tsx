@@ -38,7 +38,7 @@ export default function CustomerLoginPage() {
     });
 
     if (result?.error) {
-      setError("Telefone/e-mail ou senha incorretos");
+      setError(result.error === "RATE_LIMITED" ? "Muitas tentativas. Aguarde 15 minutos e tente de novo." : "Telefone/e-mail ou senha incorretos");
       setLoading(false);
     } else {
       router.push("/minha-conta");
@@ -249,9 +249,9 @@ export default function CustomerLoginPage() {
                   type="password"
                   value={regPassword}
                   onChange={(e) => setRegPassword(e.target.value)}
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder="Mínimo 8 caracteres"
                   required
-                  minLength={6}
+                  minLength={8}
                   style={inputStyle}
                 />
               </div>
@@ -263,7 +263,7 @@ export default function CustomerLoginPage() {
                   onChange={(e) => setRegConfirm(e.target.value)}
                   placeholder="••••••••"
                   required
-                  minLength={6}
+                  minLength={8}
                   style={inputStyle}
                 />
               </div>

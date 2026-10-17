@@ -25,7 +25,7 @@ services:
     container_name: banguelas-db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD nas variáveis do Coolify}
       POSTGRES_DB: delivery_erp
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -45,7 +45,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/delivery_erp
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/delivery_erp
       NODE_ENV: production
     volumes:
       - uploads:/app/public/uploads

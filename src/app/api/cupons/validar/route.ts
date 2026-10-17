@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveUnit } from "@/lib/api-auth";
+import { clientIp, hit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
+  const rl = hit(`coupon:${clientIp(req.headers)}`, 30, 10 * 60_000); // evita adivinhar códigos de cupom
+  if (!rl.ok) return tooManyRequests(rl);
   const unit = await resolveUnit();
   if (unit instanceof NextResponse) return unit;
-  const { code, subtotal } = await req.json();
+  const body = await req.json().catch(() => null);
+  const code = body?.code;
+  const subtotal = Number(body?.subtotal);
+  if (typeof code !== "string" || !code.trim() || code.length > 40 || !Number.isFinite(subtotal)) {
+    return NextResponse.json({ error: "Cupom inválido" }, { status: 400 });
+  }
 
   const coupon = await prisma.coupon.findFirst({
     where: {
-      code: code.toUpperCase(),
+      code: code.trim().toUpperCase(),
       unitId: unit.id,
       active: true,
       OR: [{ validTo: null }, { validTo: { gte: new Date() } }],

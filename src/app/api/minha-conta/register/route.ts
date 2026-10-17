@@ -3,15 +3,18 @@ import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { resolveUnit } from "@/lib/api-auth";
+import { clientIp, hit, tooManyRequests } from "@/lib/rate-limit";
 
 const schema = z.object({
   name: z.string().min(2),
   phone: z.string().min(10),
   email: z.string().email().optional().or(z.literal("")),
-  password: z.string().min(6),
+  password: z.string().min(8).max(72), // 72 = limite do bcrypt
 });
 
 export async function POST(req: Request) {
+  const rl = hit(`register:${clientIp(req.headers)}`, 5, 60 * 60_000);
+  if (!rl.ok) return tooManyRequests(rl);
   const unit = await resolveUnit();
   if (unit instanceof NextResponse) return unit;
 

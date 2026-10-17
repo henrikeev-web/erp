@@ -26,7 +26,7 @@ export default function LoginPage() {
     });
 
     if (result?.error) {
-      setError("E-mail ou senha incorretos");
+      setError(result.error === "RATE_LIMITED" ? "Muitas tentativas. Aguarde 15 minutos e tente de novo." : "E-mail ou senha incorretos");
       setLoading(false);
     } else {
       router.push("/admin");
