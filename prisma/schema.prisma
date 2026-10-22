@@ -111,6 +111,8 @@ model User {
   active        Boolean   @default(true)
   // Sobe quando a senha muda ou o acesso é revogado: sessões abertas (JWT) com número antigo deixam de valer
   sessionVersion Int      @default(0)
+  // Senha provisória (conta nova ou redefinida): o painel só libera "Minha conta" até a pessoa trocar a senha
+  mustChangePassword Boolean @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

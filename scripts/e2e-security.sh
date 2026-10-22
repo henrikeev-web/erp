@@ -159,6 +159,29 @@ ok "NFS-e: URL http recusada" "$(pj PUT /api/escola/config '{"cnpj":"1","wsUrl":
 ok "NFS-e: URL da GISS aceita" "$(pj PUT /api/escola/config '{"cnpj":"1","wsUrl":"https://ws-sjrp.giss.com.br/service-ws/nf/nfse-ws","wsHomologUrl":"https://ws-ficticio.giss.com.br/x"}')" 200
 rm -f $SJ
 
+echo "== usuários da matriz + senha provisória com troca obrigatória"
+SJ=$(mktemp); slogin2 rev@x.com Outra-senha-9876
+UJ(){ curl -s -b $SJ -H 'content-type: application/json' "$@"; }
+R=$(UJ -X POST $B/api/usuarios -d '{"name":"Carol Teste","email":"carol.teste@x.com","role":"ADMIN"}')
+TP=$(echo "$R" | python3 -I -c "import json,sys;print(json.load(sys.stdin).get('tempPassword',''))"); UID_N=$(echo "$R" | python3 -I -c "import json,sys;print(json.load(sys.stdin).get('id',''))")
+ok "cria usuário e devolve senha provisória" "$([ ${#TP} -ge 10 ] && echo sim)" sim
+ok "e-mail repetido é recusado" "$(UJ -o /dev/null -w '%{http_code}' -X POST $B/api/usuarios -d '{"name":"Outra","email":"carol.teste@x.com","role":"STAFF"}')" 409
+ok "banco: marcado para trocar a senha" "$(psql_ $DB "select \"mustChangePassword\" from \"User\" where email='carol.teste@x.com'")" t
+NJ=$(mktemp); SJ_OLD=$SJ; SJ=$NJ; slogin2 carol.teste@x.com "$TP"
+ok "login com a provisória funciona" "$(curl -s -b $NJ $B/api/auth/session | grep -c mustChangePassword)" 1
+ok "painel bloqueado antes da troca (API)" "$(curl -s -b $NJ -o /dev/null -w '%{http_code}' $B/api/clientes)" 403
+ok "painel bloqueado antes da troca (lista de usuários)" "$(curl -s -b $NJ -o /dev/null -w '%{http_code}' $B/api/usuarios)" 403
+ok "troca a senha" "$(curl -s -b $NJ -o /dev/null -w '%{http_code}' -X POST $B/api/conta/senha -H 'content-type: application/json' -d "{\"currentPassword\":\"$TP\",\"newPassword\":\"Carol-nova-2026\"}")" 200
+SJ=$NJ; : > $NJ; slogin2 carol.teste@x.com Carol-nova-2026
+ok "depois da troca o painel libera" "$(curl -s -b $NJ -o /dev/null -w '%{http_code}' $B/api/usuarios)" 200
+ok "banco: obrigação de troca removida" "$(psql_ $DB "select \"mustChangePassword\" from \"User\" where email='carol.teste@x.com'")" f
+SJ=$SJ_OLD
+ok "administrador não se desativa" "$(UJ -o /dev/null -w '%{http_code}' -X PATCH $B/api/usuarios/$(psql_ $DB "select id from \"User\" where email='rev@x.com'") -d '{"active":false}')" 409
+R=$(UJ -X PATCH $B/api/usuarios/$UID_N -d '{"resetPassword":true}')
+ok "nova senha provisória volta a exigir troca" "$(psql_ $DB "select \"mustChangePassword\" from \"User\" where email='carol.teste@x.com'")" t
+ok "desativar encerra o acesso" "$(UJ -o /dev/null -w '%{http_code}' -X PATCH $B/api/usuarios/$UID_N -d '{"active":false}')" 200
+rm -f $SJ $NJ
+
 echo "== edição de cupom pela tela (Chromium)"
 docker run --rm --ipc=host --network host -v "$PWD":/work:ro -w /work -e BASE=$B -e EMAIL=rev@x.com -e PASS=Outra-senha-9876 mcr.microsoft.com/playwright:v1.60.0-noble npx tsx scripts/test-cupom-ui.ts 2>&1 | grep -E "^(ok|FAIL)|tudo ok" | sed 's/^/   /'; [ "${PIPESTATUS[0]}" = 0 ] || FAILS=$((FAILS+1))
 ok "banco: valor 25, descrição e validade (fim do dia em Brasília)" "$(psql_ $DB "select value||'|'||description||'|'||to_char(\"validTo\" at time zone 'UTC','YYYY-MM-DD\"T\"HH24:MI') from \"Coupon\" where code='TESTE10'")" "25|Cupom editado pela tela|2031-01-01T02:59"

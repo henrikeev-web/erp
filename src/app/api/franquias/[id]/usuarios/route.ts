@@ -20,7 +20,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const d = userInputSchema.parse(await req.json());
     if (await prisma.user.findUnique({ where: { email: d.email }, select: { id: true } })) return NextResponse.json({ error: "E-mail já cadastrado" }, { status: 409 });
     const pwd = tempPassword();
-    const user = await prisma.user.create({ data: { name: d.name, email: d.email, role: d.role, unitId: id, passwordHash: await bcrypt.hash(pwd, 10) }, select: { id: true, name: true, email: true, role: true, active: true } });
+    const user = await prisma.user.create({ data: { name: d.name, email: d.email, role: d.role, unitId: id, passwordHash: await bcrypt.hash(pwd, 10), mustChangePassword: true }, select: { id: true, name: true, email: true, role: true, active: true } });
     return NextResponse.json({ ...user, tempPassword: pwd }, { status: 201 });
   } catch (e: any) {
     if (e instanceof z.ZodError) return NextResponse.json({ error: e.issues[0]?.message ?? "Dados inválidos" }, { status: 400 });

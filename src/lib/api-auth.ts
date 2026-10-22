@@ -25,11 +25,15 @@ export async function resolveUnit(): Promise<Unit | NextResponse> {
  * SUPER_ADMIN (equipe da matriz) pode operar qualquer unidade.
  * Uso: const a = await requireStaff(); if (a instanceof NextResponse) return a; const { unit } = a;
  */
-export async function requireStaff(roles: string[] = STAFF_ROLES): Promise<{ unit: Unit; userId: string; role: string } | NextResponse> {
+export async function requireStaff(roles: string[] = STAFF_ROLES, opts: { allowPasswordPending?: boolean } = {}): Promise<{ unit: Unit; userId: string; role: string } | NextResponse> {
   const session = await getServerSession(authOptions);
   const user = session?.user;
   if (!user || !roles.includes(user.role)) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  }
+  // Senha provisória: nada do painel funciona até a pessoa definir a própria senha (só a rota de troca passa)
+  if (user.mustChangePassword && !opts.allowPasswordPending) {
+    return NextResponse.json({ error: "Defina uma nova senha em Minha conta para continuar" }, { status: 403 });
   }
 
   const unit = await getCurrentUnit();

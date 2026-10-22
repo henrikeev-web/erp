@@ -95,7 +95,7 @@ export async function createFranchise(hq: { id: string; brandId: string }, input
       });
       const rows: CreatedUser[] = [];
       for (const u of users) {
-        const row = await tx.user.create({ data: { name: u.name, email: u.email, passwordHash: u.passwordHash, role: u.role, unitId: unit.id } });
+        const row = await tx.user.create({ data: { name: u.name, email: u.email, passwordHash: u.passwordHash, role: u.role, unitId: unit.id, mustChangePassword: true } });
         rows.push({ id: row.id, name: row.name, email: row.email, role: row.role, tempPassword: u.tempPassword });
       }
       return { unitId: unit.id, customerId: customer.id, users: rows };

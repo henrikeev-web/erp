@@ -11,6 +11,7 @@ declare module "next-auth" {
       role: string;
       phone?: string | null;
       unitId?: string;
+      mustChangePassword?: boolean;
     };
   }
 

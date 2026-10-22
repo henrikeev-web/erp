@@ -34,7 +34,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const pwd = d.resetPassword ? tempPassword() : null;
     const updated = await prisma.user.update({
       where: { id: uid },
-      data: { ...(d.name !== undefined && { name: d.name }), ...(d.role !== undefined && { role: d.role }), ...(d.active !== undefined && { active: d.active }), ...(pwd && { passwordHash: await bcrypt.hash(pwd, 10) }),
+      data: { ...(d.name !== undefined && { name: d.name }), ...(d.role !== undefined && { role: d.role }), ...(d.active !== undefined && { active: d.active }), ...(pwd && { passwordHash: await bcrypt.hash(pwd, 10), mustChangePassword: true }),
         // Reset de senha, desativação ou troca de perfil encerram as sessões abertas do usuário
         ...((pwd || d.active === false || d.role !== undefined) && { sessionVersion: { increment: 1 } }),
       },

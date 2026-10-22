@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Field, errMsg } from "@/components/admin/financeiro/shared";
 import { checkNewPassword, PASSWORD_MIN } from "@/lib/password-policy";
 
-export default function ContaClient({ name, email }: { name: string | null; email: string | null }) {
+export default function ContaClient({ name, email, forced }: { name: string | null; email: string | null; forced?: boolean }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -40,6 +40,7 @@ export default function ContaClient({ name, email }: { name: string | null; emai
         <h1 className="text-2xl font-bold text-zinc-900">Minha conta</h1>
         <p className="text-zinc-500 text-sm">{name ?? "Usuário"}{email ? ` · ${email}` : ""}</p>
       </div>
+      {forced && <div className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">Você entrou com uma senha provisória. Defina agora a sua própria senha para liberar o painel. Em Senha atual, digite a senha provisória.</div>}
       <div className="bg-white rounded-2xl border border-zinc-100 p-5 space-y-4">
         <h2 className="font-semibold text-zinc-900">Alterar senha</h2>
         <Field label="Senha atual"><Input type={type} value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" /></Field>

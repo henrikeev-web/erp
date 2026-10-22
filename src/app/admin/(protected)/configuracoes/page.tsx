@@ -6,6 +6,7 @@ import { Settings, Save, RefreshCw, Baby, Palette, Info, Image, X, Plus, Trash2,
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import PagamentoOnlineCard from "@/components/admin/PagamentoOnlineCard";
+import UsuariosCard from "@/components/admin/UsuariosCard";
 
 interface Brand {
   id: string; name: string; slug: string; logoUrl: string | null; primaryColor: string;
@@ -210,6 +211,7 @@ export default function ConfiguracoesPage() {
 
       {/* Marca */}
       <PagamentoOnlineCard />
+      <UsuariosCard />
 
       <div className="bg-white rounded-2xl border border-zinc-100 p-6 space-y-4">
         <h2 className="text-sm font-semibold text-zinc-500 uppercase tracking-wide flex items-center gap-2">

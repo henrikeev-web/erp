@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import { getCurrentUnit } from "@/lib/unit";
 import AnnouncementsHost from "@/components/admin/AnnouncementsHost";
+import ContaClient from "@/components/admin/ContaClient";
 
 const STAFF_ROLES = ["SUPER_ADMIN", "ADMIN", "STAFF"];
 
@@ -17,6 +18,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   // Cliente logado ou usuário de outra franquia não passa daqui.
   if (!user || !unit || !STAFF_ROLES.includes(user.role) || (user.role !== "SUPER_ADMIN" && user.unitId !== unit.id)) {
     redirect("/admin/login");
+  }
+
+  // Senha provisória: só a tela de troca de senha, sem menu nem páginas do painel
+  if (user.mustChangePassword) {
+    return (
+      <div className="min-h-screen bg-zinc-50">
+        <ContaClient name={user.name ?? null} email={user.email ?? null} forced />
+      </div>
+    );
   }
 
   return (

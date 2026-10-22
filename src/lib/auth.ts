@@ -187,12 +187,14 @@ export const authOptions: NextAuthOptions = {
       const role = token.role as string | undefined;
       let userRole = role;
       let unitId = token.unitId as string | undefined;
+      let mustChangePassword = false;
 
       if (role === "SUPER_ADMIN" || role === "ADMIN" || role === "STAFF") {
-        const u = await prisma.user.findUnique({ where: { id: token.id as string }, select: { active: true, role: true, unitId: true, sessionVersion: true } });
+        const u = await prisma.user.findUnique({ where: { id: token.id as string }, select: { active: true, role: true, unitId: true, sessionVersion: true, mustChangePassword: true } });
         if (!u || !u.active || u.sessionVersion !== (token.sv ?? 0)) return dead;
         userRole = u.role;
         unitId = u.unitId;
+        mustChangePassword = u.mustChangePassword;
       } else if (role === "CUSTOMER") {
         const c = await prisma.customer.findUnique({ where: { id: token.id as string }, select: { active: true, unitId: true } });
         if (!c || !c.active) return dead;
@@ -203,6 +205,7 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.id as string;
         session.user.unitId = unitId;
         (session.user as { role?: string }).role = userRole;
+        if (mustChangePassword) session.user.mustChangePassword = true;
         if (token.phone) {
           (session.user as { phone?: string }).phone = token.phone as string;
         }

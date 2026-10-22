@@ -9,7 +9,7 @@ const schema = z.object({ currentPassword: z.string().min(1).max(200), newPasswo
 
 /** Troca a PRÓPRIA senha do painel (qualquer perfil de staff). Exige a senha atual. */
 export async function POST(req: NextRequest) {
-  const auth = await requireStaff();
+  const auth = await requireStaff(undefined, { allowPasswordPending: true });
   if (auth instanceof NextResponse) return auth;
 
   const parsed = schema.safeParse(await req.json().catch(() => null));
@@ -31,6 +31,6 @@ export async function POST(req: NextRequest) {
   const problem = checkNewPassword(newPassword, { email: user.email, current: currentPassword });
   if (problem) return NextResponse.json({ error: problem }, { status: 400 });
 
-  await prisma.user.update({ where: { id: user.id }, data: { passwordHash: await bcrypt.hash(newPassword, 10), sessionVersion: { increment: 1 } } }); // derruba as outras sessões abertas (e esta: o front sai e pede o login de novo)
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash: await bcrypt.hash(newPassword, 10), mustChangePassword: false, sessionVersion: { increment: 1 } } }); // derruba as outras sessões abertas (e esta: o front sai e pede o login de novo)
   return NextResponse.json({ ok: true });
 }
