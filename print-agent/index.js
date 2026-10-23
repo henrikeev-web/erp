@@ -205,6 +205,19 @@ function buildReceipt(order) {
   printer.bold(false);
   printer.alignLeft();
 
+  // 1º pedido do cliente: faixa preta com texto vazado
+  if (order.isFirstOrder) {
+    printer.alignCenter();
+    printer.invert(true);
+    printer.bold(true);
+    printer.setTextDoubleHeight();
+    printer.println(" *** 1o PEDIDO *** ");
+    printer.setTextNormal();
+    printer.bold(false);
+    printer.invert(false);
+    printer.alignLeft();
+  }
+
   printer.println(row(`Mov: ${brDate(order.createdAt)}`, `${delivery ? "Entrega" : "Retirada"} ${order.number} (${firstName})`));
   printer.println(row(`Pedido as ${brTime(order.createdAt)}h`, delivery ? `Entreg: ${order.courier?.name || "(nao informado)"}` : ""));
 

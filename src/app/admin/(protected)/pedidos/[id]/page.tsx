@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { firstOrderIds } from "@/lib/first-order";
 import { getCurrentUnit } from "@/lib/unit";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
@@ -28,6 +29,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   });
 
   if (!order) notFound();
+  const isFirstOrder = (await firstOrderIds([order])).has(order.id);
 
   return (
     <div className="p-6 lg:p-8 max-w-4xl mx-auto space-y-6">
@@ -39,6 +41,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           <h1 className="text-2xl font-bold text-zinc-900 flex items-center gap-3">
             Pedido #{order.number}
             <OrderStatusBadge status={order.status} />
+            {isFirstOrder && (
+              <span className="text-xs font-bold uppercase tracking-wide bg-zinc-900 text-white px-2.5 py-1 rounded-full">1º pedido</span>
+            )}
           </h1>
           <p className="text-zinc-500 text-sm">
             {format(order.createdAt, "dd 'de' MMMM 'às' HH:mm", { locale: ptBR })}

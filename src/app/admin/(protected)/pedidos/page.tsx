@@ -47,6 +47,7 @@ interface Order {
   id: string; number: number; status: string; type: string;
   total: number; createdAt: string; paymentLinkUrl: string | null; priceTier?: string; invoiceDays?: number | null;
   courier?: { id: string; name: string } | null;
+  isFirstOrder?: boolean;
   customer: { name: string; phone: string };
   payment: Payment | null;
   items: { name: string; quantity: number }[];
@@ -271,6 +272,9 @@ export default function PedidosPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-semibold text-zinc-900">{order.customer.name}</p>
+                    {order.isFirstOrder && (
+                      <span className="text-[10px] font-bold uppercase tracking-wide bg-zinc-900 text-white px-2 py-0.5 rounded-full">1º pedido</span>
+                    )}
                     <a href={`https://wa.me/55${order.customer.phone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer"
                       className="text-green-500 hover:text-green-600 transition-colors">
                       <Phone className="w-3.5 h-3.5" />

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { firstOrderIds } from "@/lib/first-order";
 import { emitAdminEvent } from "@/lib/sse";
 import { requireStaff, requireStaffOrAgent } from "@/lib/api-auth";
 import { restoreOrderStock } from "@/lib/order-service";
@@ -24,7 +25,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     },
   });
   if (!order) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
-  return NextResponse.json(order);
+  const firsts = await firstOrderIds([order]);
+  return NextResponse.json({ ...order, isFirstOrder: firsts.has(order.id) });
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

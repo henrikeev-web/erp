@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { firstOrderIds } from "@/lib/first-order";
 import { z } from "zod";
 import { requireStaff } from "@/lib/api-auth";
 import { createOrder, OrderError } from "@/lib/order-service";
@@ -77,7 +78,8 @@ export async function GET(req: NextRequest) {
     prisma.order.count({ where }),
   ]);
 
-  return NextResponse.json({ orders, total, page, limit });
+  const firsts = await firstOrderIds(orders);
+  return NextResponse.json({ orders: orders.map((o) => ({ ...o, isFirstOrder: firsts.has(o.id) })), total, page, limit });
 }
 
 // Pedido manual do painel: o operador escolhe o cliente (ou cadastra na hora), pode dar desconto de qualquer valor
