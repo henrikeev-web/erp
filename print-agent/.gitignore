@@ -2,3 +2,6 @@ node_modules
 .env
 printed.json
 pending.json
+config.json
+agent.log
+dist

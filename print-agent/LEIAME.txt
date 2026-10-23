@@ -1,0 +1,35 @@
+BANGUELAS - IMPRESSÃO AUTOMÁTICA DE PEDIDOS
+===========================================
+
+Instalar (uma vez só, no computador da impressora, logado como Carol):
+
+ 1. Extraia TODO o conteúdo deste .zip numa pasta (botão direito > Extrair tudo).
+    O banguelas-print.exe e o config.json precisam ficar juntos.
+ 2. Dê dois cliques em banguelas-print.exe.
+ 3. Se o Windows avisar "O Windows protegeu o computador":
+      clique em "Mais informações" e depois em "Executar assim mesmo".
+    (O programa não é assinado digitalmente, por isso o aviso aparece.)
+ 4. Na janela preta:
+      - ele procura a Epson TM-T20 sozinho (se houver dúvida, pede o número);
+      - imprime um cupom de TESTE;
+      - instala o agente para iniciar sozinho com o Windows.
+ 5. Pressione ENTER para fechar. Pronto — não precisa deixar nada aberto.
+
+Se o cupom de teste sair, está tudo certo: os pedidos novos passam a ser
+impressos automaticamente, SEMPRE EM 2 VIAS (pagamento na entrega: na hora; pagamento online:
+depois que o pagamento for aprovado).
+
+Para testar de verdade: crie um pedido de teste no painel
+(Pedidos > Novo pedido, pagamento na entrega) e o cupom sai sozinho.
+
+Problemas:
+ - Nada imprime e o teste falhou: confira se a impressora está ligada, com papel e
+   se o driver da Epson TM-T20 está instalado (ela precisa aparecer em
+   Configurações > Impressoras e scanners).
+ - Registro de atividade (para suporte): %LOCALAPPDATA%\BanguelasPrint\agent.log
+ - Trocar de impressora ou desinstalar: dê dois cliques em banguelas-print.exe de
+   novo e escolha a opção.
+
+Observação: o computador precisa estar ligado, com a Carol logada e com internet.
+Pedido que chegar com o computador desligado NÃO é impresso depois (use o botão
+"Imprimir" do painel).

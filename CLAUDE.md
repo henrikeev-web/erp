@@ -594,9 +594,11 @@ Documentação completa: **`docs/pagamentos-infinitepay.md`**. Resumo:
 - `print-agent/index.js` — script Node.js independente que roda no computador da loja (guia de instalação no Windows: `print-agent/README.md`)
 - Subscreve SSE de `/api/admin/events` → busca o pedido via API → formata ESC/POS → envia para a impressora
 - **Quando imprime**: `order_confirmed` sempre; `order_new` só se o pagamento **não** for `ONLINE_*` (online espera a confirmação do gateway). Pedido cancelado não imprime.
+- **2 vias por pedido** (`PRINT_COPIES` ou `copies` no `config.json`; padrão 2, máx. 5): as vias vão no mesmo trabalho de impressão, cada uma terminando em corte (o cupom de teste do instalador sai em 1 via).
 - **Sem duplicar**: `printed.json` guarda os últimos 500 pedidos impressos (sobrevive a reinício). **Sem perder**: falha da impressora → `pending.json` + nova tentativa a cada `RETRY_SECONDS` (20 s). Pedido que chega com o agente desligado não é recuperado (sem catch-up).
 - `.env` (veja `.env.example`): `ERP_URL` (host da unidade), `PRINT_AGENT_KEY`, `PRINTER_TYPE` (epson/star), `PRINTER_WIDTH` (32 = 58 mm, 48 = 80 mm), `PRINTER_INTERFACE`: `share:Nome` (Windows, impressora compartilhada via `copy /b`), `tcp://ip:9100`, `usb://VID:PID` (Linux/macOS) ou serial
 - Testado só contra ERP e impressora simulados (TCP); o caminho `share:` do Windows ainda precisa de teste na impressora real da loja
+- **Executável para a loja** (`print-agent/build-exe.sh`, `@yao-pkg/pkg`, alvo `node22-win-x64`): gera `.zip` com `banguelas-print.exe` + `config.json` (ERP, chave e largura; a chave **nunca** vai para o Git) + `LEIAME.txt`. Duplo clique: acha a TM-T20, imprime teste, copia-se para `%LOCALAPPDATA%\BanguelasPrint` e cria `banguelas-print.vbs` na pasta Inicializar (roda oculto, `agent.log`, trava na porta 47231 contra duas cópias). Envio por `PRINTER_INTERFACE=win:Nome` (winspool RAW via PowerShell, sem compartilhar). Modos: sem argumento = menu de instalação; `run` = agente. **Não testado em Windows real** (só o binário Linux equivalente e a lógica de escolha da impressora); exe sem assinatura digital → aviso do SmartScreen/antivírus.
 - Instalar dependências: `cd print-agent && npm install`
 
 ---

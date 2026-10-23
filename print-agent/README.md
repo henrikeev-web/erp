@@ -1,10 +1,24 @@
 # Banguelas Print Agent — instalação no Windows
 
+## Caminho fácil: executável (recomendado)
+Gere o pacote no servidor (a chave da unidade vai só para dentro do `.zip`, nunca para o Git):
+
+```
+cd print-agent && npm install
+PRINT_AGENT_KEY=$(npx tsx ../scripts/print-agent-key.ts matriz) bash build-exe.sh /root/banguelas-print-loja.zip
+```
+
+(`PRINT_AGENT_SECRET` precisa estar no ambiente; `ERP_URL` padrão é a matriz.) O `.zip` traz `banguelas-print.exe` + `config.json` + `LEIAME.txt`. Na máquina da loja: extrair, dois cliques no `.exe` — ele acha a TM-T20, imprime um cupom de teste e se instala para iniciar com o Windows (pasta Inicializar do usuário, sem administrador, sem senha). O envio é RAW pelo spooler do Windows (`PRINTER_INTERFACE=win:Nome`), **sem compartilhar a impressora**. O executável não é assinado: o Windows mostra o aviso do SmartScreen ("Mais informações → Executar assim mesmo").
+
+O restante deste arquivo descreve a instalação manual (com Node.js), que continua funcionando.
+
+---
+
 Imprime sozinho cada pedido na impressora térmica da loja.
 
 Impressora da loja: **Epson TM-T20** (ESC/POS, bobina de 80 mm → `PRINTER_WIDTH=48`, `PRINTER_TYPE=epson`). O cupom segue o modelo do sistema anterior (título, cliente, endereço, itens, totais, "RECEBER NA ENTREGA" e "COBRAR DO CLIENTE" em destaque).
 
-**Quando imprime:** pagamento na entrega (dinheiro, maquininha, PIX na entrega, faturado) imprime assim que o pedido chega. Pagamento online imprime só depois que o pagamento é aprovado. Cada pedido sai uma vez. Se a impressora estiver desligada ou sem papel, o agente tenta de novo a cada 20 s até conseguir (inclusive depois de reiniciar o computador).
+**Quando imprime:** pagamento na entrega (dinheiro, maquininha, PIX na entrega, faturado) imprime assim que o pedido chega. Pagamento online imprime só depois que o pagamento é aprovado. Cada pedido sai em **2 vias** (`PRINT_COPIES`, padrão 2) e uma única vez. Se a impressora estiver desligada ou sem papel, o agente tenta de novo a cada 20 s até conseguir (inclusive depois de reiniciar o computador).
 
 ## 1. Compartilhar a impressora
 1. Instale o driver da impressora normalmente (o do fabricante).
