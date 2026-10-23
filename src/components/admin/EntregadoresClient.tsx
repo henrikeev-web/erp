@@ -9,9 +9,9 @@ import { Field, Modal, brl, errMsg, fmtDate, selectCls, todayStr } from "@/compo
 
 interface Delivery { orderId: string; number: number; time: string; day: string; zone: string | null; neighborhood: string | null; deliveryFee: number; courierFee: number }
 interface Day { day: string; count: number; total: number; payable: { id: string; status: string } | null }
-interface Report { courier: { id: string; name: string; pixKey: string | null }; deliveries: Delivery[]; days: Day[]; totals: { count: number; total: number; feesCharged: number } }
+interface Report { courier: { id: string; name: string; pixKey: string | null; thirdParty: boolean }; deliveries: Delivery[]; days: Day[]; totals: { count: number; total: number; feesCharged: number } }
 interface ReportData { de: string; ate: string; today: string; couriers: Report[]; totals: { count: number; total: number; feesCharged: number; margin: number }; inRoute: number }
-interface Courier { id: string; name: string; phone: string | null; pixKey: string | null; document: string | null; notes: string | null; active: boolean }
+interface Courier { id: string; name: string; phone: string | null; pixKey: string | null; document: string | null; notes: string | null; thirdParty: boolean; active: boolean }
 
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return ymd(d); };
@@ -81,7 +81,7 @@ function ReportTab() {
           <label className="text-xs font-medium text-zinc-500 block mb-1">Entregador</label>
           <select className={selectCls} value={courierId} onChange={(e) => setCourierId(e.target.value)}>
             <option value="">Todos</option>
-            {couriers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {couriers.map((c) => <option key={c.id} value={c.id}>{c.name}{c.thirdParty ? " (terceirizado)" : ""}</option>)}
           </select>
         </div>
       </div>
@@ -99,13 +99,17 @@ function ReportTab() {
               <div key={t} className="bg-white rounded-2xl border border-zinc-100 p-4"><p className="text-xs text-zinc-500">{t}</p><p className={`text-xl font-bold mt-1 ${c}`}>{v}</p></div>
             ))}
           </div>
+          {data.couriers.some((r) => r.courier.thirdParty) && (() => {
+            const sum = (third: boolean) => data.couriers.filter((r) => r.courier.thirdParty === third).reduce((t, r) => t + r.totals.total, 0);
+            return <p className="text-xs text-zinc-600">Custo no período: entregadores próprios <b>{brl(sum(false))}</b> · terceirizados <b>{brl(sum(true))}</b></p>;
+          })()}
           {data.inRoute > 0 && <p className="text-xs text-zinc-500">{data.inRoute} pedido{data.inRoute > 1 ? "s" : ""} de entrega em andamento (entram no relatório quando forem entregues).</p>}
 
           {data.couriers.length === 0 ? <div className="text-center py-12 text-zinc-400 bg-white rounded-2xl border border-zinc-100">Nenhuma entrega no período</div> : data.couriers.map((r) => (
             <section key={r.courier.id} className="bg-white rounded-2xl border border-zinc-100 overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100 flex-wrap gap-2">
                 <div>
-                  <p className="font-semibold text-zinc-900">{r.courier.name}</p>
+                  <p className="font-semibold text-zinc-900">{r.courier.name}{r.courier.thirdParty && <TagTerceirizado />}</p>
                   <p className="text-xs text-zinc-500">{r.totals.count} entrega{r.totals.count !== 1 ? "s" : ""}{r.courier.pixKey ? ` · PIX: ${r.courier.pixKey}` : ""}</p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -150,7 +154,7 @@ function ReportTab() {
 
 function CadastroTab() {
   const [list, setList] = useState<Courier[]>([]);
-  const [editing, setEditing] = useState<Courier | "new" | null>(null);
+  const [editing, setEditing] = useState<Courier | "new" | "third" | null>(null);
   const [v, setV] = useState(0);
   useEffect(() => {
     let alive = true;
@@ -166,14 +170,17 @@ function CadastroTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end"><Button className="bg-orange-500 hover:bg-orange-600" onClick={() => setEditing("new")}>+ Novo entregador</Button></div>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={() => setEditing("third")}>+ Novo terceirizado</Button>
+        <Button className="bg-orange-500 hover:bg-orange-600" onClick={() => setEditing("new")}>+ Novo entregador</Button>
+      </div>
       <div className="bg-white rounded-2xl border border-zinc-100 overflow-x-auto">
         <table className="w-full text-sm">
           <thead><tr className="text-left text-xs text-zinc-500 border-b border-zinc-100"><th className="px-4 py-3 font-medium">Nome</th><th className="px-4 py-3 font-medium">Telefone</th><th className="px-4 py-3 font-medium">Chave PIX</th><th className="px-4 py-3" /></tr></thead>
           <tbody>
             {list.length === 0 ? <tr><td colSpan={4} className="text-center py-12 text-zinc-400">Nenhum entregador cadastrado</td></tr> : list.map((c) => (
               <tr key={c.id} className={`border-b border-zinc-50 last:border-0 ${c.active ? "" : "opacity-50"}`}>
-                <td className="px-4 py-3 font-medium text-zinc-900">{c.name}{!c.active && <span className="ml-2 text-[11px] font-normal text-zinc-500">(inativo)</span>}</td>
+                <td className="px-4 py-3 font-medium text-zinc-900">{c.name}{c.thirdParty && <TagTerceirizado />}{!c.active && <span className="ml-2 text-[11px] font-normal text-zinc-500">(inativo)</span>}</td>
                 <td className="px-4 py-3">{c.phone ?? "—"}</td>
                 <td className="px-4 py-3">{c.pixKey ?? "—"}</td>
                 <td className="px-4 py-3"><div className="flex justify-end gap-1">
@@ -186,7 +193,10 @@ function CadastroTab() {
           </tbody>
         </table>
       </div>
-      {editing && <CourierModal courier={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
+      {editing === "third" && <ThirdPartyModal onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
+      {editing && editing !== "third" && (editing !== "new" && editing.thirdParty
+        ? <ThirdPartyModal courier={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />
+        : <CourierModal courier={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />)}
     </div>
   );
 }
@@ -223,6 +233,37 @@ function CourierModal({ courier, onClose, onSaved }: { courier: Courier | null; 
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
         <Button className="bg-orange-500 hover:bg-orange-600" onClick={save} disabled={saving}>{saving ? "Salvando…" : "Salvar"}</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function TagTerceirizado() {
+  return <span className="ml-2 px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-700 text-[11px] font-semibold align-middle">Terceirizado</span>;
+}
+
+/** Empresa terceirizada (Logical, Uber…): só o nome — o custo de cada entrega continua pela região e entra no relatório/financeiro. */
+function ThirdPartyModal({ courier, onClose, onSaved }: { courier?: Courier; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(courier?.name ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function save() {
+    setSaving(true); setError("");
+    try {
+      if (courier) await axios.patch(`/api/entregadores/${courier.id}`, { name }); else await axios.post("/api/entregadores", { name, thirdParty: true });
+      onSaved();
+    } catch (e) { setError(errMsg(e)); setSaving(false); }
+  }
+
+  return (
+    <Modal title={courier ? "Editar terceirizado" : "Novo terceirizado"} onClose={onClose}>
+      <Field label="Nome da empresa *" hint="Ex.: Logical, Uber Flash. Não precisa de CPF, telefone ou PIX."><Input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && name.trim().length >= 2 && !saving && save()} autoFocus /></Field>
+      <p className="text-[11px] text-zinc-500">Escolha esta empresa no pedido como se fosse um entregador. O custo de cada entrega (valor da região) aparece no relatório e em Contas a pagar, separado dos entregadores próprios.</p>
+      {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
+        <Button className="bg-orange-500 hover:bg-orange-600" onClick={save} disabled={saving || name.trim().length < 2}>{saving ? "Salvando…" : "Salvar"}</Button>
       </div>
     </Modal>
   );

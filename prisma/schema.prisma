@@ -74,8 +74,8 @@ model Unit {
   infinitepayHandle String?
 
   // Catálogo da matriz que esta franquia NÃO recebe (ids de Product/Category da matriz). Respeitado por toda sincronização.
-  excludedProductIds  String[]             @default([])
-  excludedCategoryIds String[]             @default([])
+  excludedProductIds  String[] @default([])
+  excludedCategoryIds String[] @default([])
 
   brand               Brand                @relation(fields: [brandId], references: [id])
   users               User[]
@@ -100,21 +100,21 @@ model Unit {
 // ─── USUÁRIOS ADMIN / STAFF ──────────────────────────────────────────────────
 
 model User {
-  id            String    @id @default(cuid())
-  unitId        String
-  name          String?
-  email         String    @unique
-  emailVerified DateTime?
-  image         String?
-  passwordHash  String?
-  role          UserRole  @default(STAFF)
-  active        Boolean   @default(true)
+  id                 String    @id @default(cuid())
+  unitId             String
+  name               String?
+  email              String    @unique
+  emailVerified      DateTime?
+  image              String?
+  passwordHash       String?
+  role               UserRole  @default(STAFF)
+  active             Boolean   @default(true)
   // Sobe quando a senha muda ou o acesso é revogado: sessões abertas (JWT) com número antigo deixam de valer
-  sessionVersion Int      @default(0)
+  sessionVersion     Int       @default(0)
   // Senha provisória (conta nova ou redefinida): o painel só libera "Minha conta" até a pessoa trocar a senha
-  mustChangePassword Boolean @default(false)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  mustChangePassword Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   accounts Account[]
   sessions Session[]
@@ -945,16 +945,17 @@ model RecurringEntry {
 // ─── ENTREGADORES (sem acesso ao sistema; pagos por entrega) ─────────────────
 
 model Courier {
-  id        String   @id @default(cuid())
-  unitId    String
-  name      String
-  phone     String?
-  pixKey    String?
-  document  String? // CPF, só dígitos
-  notes     String?
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  unitId     String
+  name       String
+  phone      String?
+  pixKey     String?
+  document   String? // CPF, só dígitos
+  notes      String?
+  thirdParty Boolean  @default(false) // empresa terceirizada (Logical, Uber…): só nome, sem CPF/PIX/telefone — serve para acompanhar o custo
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   unit    Unit             @relation(fields: [unitId], references: [id])
   orders  Order[]

@@ -14,3 +14,8 @@ export const courierSchema = z.object({
   notes: z.string().trim().max(500).nullable().optional(),
 });
 
+
+// Empresa terceirizada (Logical, Uber…): só o nome
+export const thirdPartySchema = z.object({
+  name: z.string().trim().min(2, "Informe o nome da empresa").max(120),
+});

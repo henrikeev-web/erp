@@ -7,7 +7,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 export interface DeliveryRow { orderId: string; number: number; deliveredAt: string; day: string; time: string; zone: string | null; neighborhood: string | null; deliveryFee: number; courierFee: number }
 export interface DayRow { day: string; count: number; total: number; payable: { id: string; status: string } | null }
 export interface CourierReport {
-  courier: { id: string; name: string; pixKey: string | null; phone: string | null };
+  courier: { id: string; name: string; pixKey: string | null; phone: string | null; thirdParty: boolean };
   deliveries: DeliveryRow[];
   days: DayRow[];
   totals: { count: number; total: number; feesCharged: number };
@@ -26,7 +26,7 @@ export async function buildCourierReports(unitId: string, de: string, ate: strin
     select: {
       id: true, number: true, deliveredAt: true, deliveryFee: true, courierFee: true, courierId: true,
       deliveryZone: { select: { name: true } }, address: { select: { neighborhood: true } },
-      courier: { select: { id: true, name: true, pixKey: true, phone: true } },
+      courier: { select: { id: true, name: true, pixKey: true, phone: true, thirdParty: true } },
     },
   });
 

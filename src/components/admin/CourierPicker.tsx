@@ -7,7 +7,7 @@ import { Bike, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-interface Courier { id: string; name: string; phone: string | null }
+interface Courier { id: string; name: string; phone: string | null; thirdParty?: boolean }
 
 const errMsg = (e: unknown, f = "Erro ao atualizar pedido") => (axios.isAxiosError(e) && e.response?.data?.error ? String(e.response.data.error) : f);
 
@@ -56,7 +56,7 @@ export function CourierPickerModal({ title, current, onPick, onClose }: { title:
               <div className="space-y-1.5 max-h-64 overflow-y-auto">
                 {couriers.map((c) => (
                   <button key={c.id} onClick={() => setSelected(c.id)} className={`w-full text-left px-3 py-2.5 rounded-xl border text-sm ${selected === c.id ? "border-orange-500 bg-orange-50" : "border-zinc-200 hover:border-zinc-300"}`}>
-                    <span className="font-medium text-zinc-900">{c.name}</span>{c.phone && <span className="text-zinc-400"> · {c.phone}</span>}
+                    <span className="font-medium text-zinc-900">{c.name}</span>{c.thirdParty ? <span className="text-zinc-400"> · terceirizado</span> : c.phone && <span className="text-zinc-400"> · {c.phone}</span>}
                   </button>
                 ))}
               </div>

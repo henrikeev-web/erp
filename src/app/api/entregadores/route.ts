@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/api-auth";
-import { courierSchema } from "@/lib/courier-schema";
+import { courierSchema, thirdPartySchema } from "@/lib/courier-schema";
 
 export const dynamic = "force-dynamic";
 const ADMIN = ["SUPER_ADMIN", "ADMIN"];
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const list = await prisma.courier.findMany({
     where: { unitId: auth.unit.id, ...(all && isAdmin ? {} : { active: true }) },
     orderBy: { name: "asc" },
-    select: { id: true, name: true, phone: true, active: true, ...(isAdmin ? { pixKey: true, document: true, notes: true } : {}) },
+    select: { id: true, name: true, phone: true, active: true, thirdParty: true, ...(isAdmin ? { pixKey: true, document: true, notes: true } : {}) },
   });
   return NextResponse.json(list);
 }
@@ -27,7 +27,14 @@ export async function POST(req: NextRequest) {
   const auth = await requireStaff(ADMIN);
   if (auth instanceof NextResponse) return auth;
   try {
-    const d = courierSchema.parse(await req.json());
+    const body = await req.json();
+    if (body?.thirdParty === true) {
+      const { name } = thirdPartySchema.parse(body);
+      const dup = await prisma.courier.findFirst({ where: { unitId: auth.unit.id, thirdParty: true, name: { equals: name, mode: "insensitive" } }, select: { id: true } });
+      if (dup) return NextResponse.json({ error: "Já existe um terceirizado com este nome" }, { status: 409 });
+      return NextResponse.json(await prisma.courier.create({ data: { name, thirdParty: true, unitId: auth.unit.id } }), { status: 201 });
+    }
+    const d = courierSchema.parse(body);
     const created = await prisma.courier.create({ data: { ...d, unitId: auth.unit.id } });
     return NextResponse.json(created, { status: 201 });
   } catch (e: any) {
