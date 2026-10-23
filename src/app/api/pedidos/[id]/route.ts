@@ -17,6 +17,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       customer: { omit: { passwordHash: true } },
       address: true,
       deliveryZone: true,
+      courier: { select: { name: true } }, // só o nome (sem PIX/CPF) — vai no cupom impresso
       items: { include: { product: { include: { images: true } }, components: true } },
       payment: true,
       fiscalDocs: true,

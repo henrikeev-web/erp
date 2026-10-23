@@ -515,7 +515,8 @@ src/
 print-agent/                   # Agente local para impressora térmica ESC/POS
 ├── index.js                   # Subscreve SSE e imprime via node-thermal-printer
 ├── package.json
-└── .env.example               # ERP_URL, PRINTER_TYPE, PRINTER_INTERFACE
+├── .env.example               # ERP_URL, PRINT_AGENT_KEY, PRINTER_TYPE/INTERFACE/WIDTH
+└── README.md                  # Instalação no Windows
 
 public/
 └── uploads/
@@ -590,10 +591,12 @@ Documentação completa: **`docs/pagamentos-infinitepay.md`**. Resumo:
 
 ## Impressora Térmica — Print Agent
 
-- `print-agent/index.js` — script Node.js independente que roda no computador da loja
-- Subscreve SSE de `/api/admin/events`; ao receber `order_confirmed` → busca pedido via API → formata ESC/POS → envia para impressora
-- Configurar `print-agent/.env` com `ERP_URL`, `PRINTER_TYPE` (epson/star), `PRINTER_INTERFACE` (USB/TCP/Serial)
-- Para rodar em produção: `pm2 start print-agent/index.js --name banguelas-print`
+- `print-agent/index.js` — script Node.js independente que roda no computador da loja (guia de instalação no Windows: `print-agent/README.md`)
+- Subscreve SSE de `/api/admin/events` → busca o pedido via API → formata ESC/POS → envia para a impressora
+- **Quando imprime**: `order_confirmed` sempre; `order_new` só se o pagamento **não** for `ONLINE_*` (online espera a confirmação do gateway). Pedido cancelado não imprime.
+- **Sem duplicar**: `printed.json` guarda os últimos 500 pedidos impressos (sobrevive a reinício). **Sem perder**: falha da impressora → `pending.json` + nova tentativa a cada `RETRY_SECONDS` (20 s). Pedido que chega com o agente desligado não é recuperado (sem catch-up).
+- `.env` (veja `.env.example`): `ERP_URL` (host da unidade), `PRINT_AGENT_KEY`, `PRINTER_TYPE` (epson/star), `PRINTER_WIDTH` (32 = 58 mm, 48 = 80 mm), `PRINTER_INTERFACE`: `share:Nome` (Windows, impressora compartilhada via `copy /b`), `tcp://ip:9100`, `usb://VID:PID` (Linux/macOS) ou serial
+- Testado só contra ERP e impressora simulados (TCP); o caminho `share:` do Windows ainda precisa de teste na impressora real da loja
 - Instalar dependências: `cd print-agent && npm install`
 
 ---
