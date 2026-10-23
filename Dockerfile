@@ -9,6 +9,9 @@ RUN npm ci
 
 COPY . .
 
+# Dependências de produção do agente de impressão (o painel monta o .zip de instalação com elas)
+RUN cd print-agent && npm ci --omit=dev --no-audit --no-fund
+
 # Gera o client Prisma 7 (→ src/generated/prisma/client)
 RUN npx prisma generate
 

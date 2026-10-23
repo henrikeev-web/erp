@@ -9,3 +9,5 @@ npm-debug.log*
 .git
 .gitignore
 README.md
+print-agent/node_modules
+print-agent/dist
