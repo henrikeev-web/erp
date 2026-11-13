@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ShoppingBag, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import axios from "axios";
-import { formatCurrency, orderStatusLabel, paymentMethodLabel } from "@/lib/utils";
+import { formatCurrency, orderStatusLabel, paymentMethodLabel, orderNo } from "@/lib/utils";
 
 interface OrderItem {
   id: string;
@@ -82,7 +82,7 @@ export default function PedidosPage() {
               >
                 <div style={{ textAlign: "left", flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: "#1c1917" }}>Pedido #{order.number}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#1c1917" }}>Pedido #{orderNo(order.number)}</span>
                     <span style={{
                       fontSize: 11,
                       fontWeight: 600,

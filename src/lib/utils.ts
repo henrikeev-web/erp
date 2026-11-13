@@ -80,3 +80,8 @@ export function paymentMethodLabel(method: string): string {
   };
   return map[method] ?? method;
 }
+
+// Pedido importado do Goomer tem número negativo (-7) e aparece como "0.7"; os do sistema seguem 1, 2, 3…
+export function orderNo(n: number): string {
+  return n < 0 ? `0.${-n}` : String(n);
+}

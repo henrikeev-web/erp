@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { formatCurrency, paymentMethodLabel } from "@/lib/utils";
+import { formatCurrency, paymentMethodLabel, orderNo } from "@/lib/utils";
 import { requireStaff } from "@/lib/api-auth";
 
 // Nome, endereço e observações vêm do cliente: sempre escapar antes de montar HTML
@@ -76,7 +76,7 @@ ${order.address.deliveryZone ? `[${esc(order.address.deliveryZone.name)}]` : ""}
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Romaneio #${order.number}</title>
+<title>Romaneio #${orderNo(order.number)}</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family: Arial, sans-serif; font-size: 12px; padding: 20px; max-width: 400px; margin: auto; }
@@ -105,7 +105,7 @@ ${order.address.deliveryZone ? `[${esc(order.address.deliveryZone.name)}]` : ""}
 </div>
 
 <div style="display:flex;justify-content:space-between;margin-bottom:10px">
-  <div><strong style="font-size:18px">Pedido #${order.number}</strong></div>
+  <div><strong style="font-size:18px">Pedido #${orderNo(order.number)}</strong></div>
   <div style="text-align:right">
     <span style="background:#ff6b00;color:#fff;padding:3px 10px;border-radius:20px;font-weight:bold;font-size:11px">
       ${order.type === "PICKUP" ? "RETIRADA" : "DELIVERY"}

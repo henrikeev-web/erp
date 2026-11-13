@@ -5,7 +5,7 @@ import axios from "axios";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { FileText, Printer, RefreshCw, ChevronDown, MapPin, Phone } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, orderNo } from "@/lib/utils";
 import OrderStatusBadge from "@/components/admin/OrderStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -157,7 +157,7 @@ export default function FiscalPage() {
                 className="mt-1 w-4 h-4 rounded border-zinc-300 text-orange-500 focus:ring-orange-500" />
 
               <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center shrink-0">
-                <span className="text-xs font-bold text-orange-700">#{order.number}</span>
+                <span className="text-xs font-bold text-orange-700">#{orderNo(order.number)}</span>
               </div>
 
               <div className="flex-1 min-w-0">

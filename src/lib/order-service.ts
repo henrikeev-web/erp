@@ -253,7 +253,8 @@ export async function createOrder(input: CreateOrderInput) {
     // número em série. Só o retry não bastava — sob rajada os perdedores voltavam a disputar o mesmo número.
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"order-number:" + unit.id}))`;
     const last = await tx.order.findFirst({ where: { unitId: unit.id }, orderBy: { number: "desc" }, select: { number: true } });
-    const number = (last?.number ?? 0) + 1;
+    // históricos importados têm número negativo (exibidos como 0.N); a sequência real parte de 1
+    const number = Math.max(last?.number ?? 0, 0) + 1;
 
     const created = await tx.order.create({
       data: {

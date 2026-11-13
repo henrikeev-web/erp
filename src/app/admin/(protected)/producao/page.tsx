@@ -5,7 +5,7 @@ import axios from "axios";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { ChefHat, RefreshCw, Check, Package, Clock } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, orderNo } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useOrderStatus } from "@/components/admin/CourierPicker";
 
@@ -76,7 +76,7 @@ export default function ProducaoPage() {
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-zinc-400">#{order.number}</span>
+              <span className="text-sm font-bold text-zinc-400">#{orderNo(order.number)}</span>
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${order.status === "CONFIRMED" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
                 {order.status === "CONFIRMED" ? "Confirmado" : "Em produção"}
               </span>
@@ -175,7 +175,7 @@ export default function ProducaoPage() {
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-zinc-900">{item.name}</p>
                     <p className="text-xs text-zinc-400">
-                      Pedidos: {item.orders.map(o => `#${o.number}(${o.qty})`).join(", ")}
+                      Pedidos: {item.orders.map(o => `#${orderNo(o.number)}(${o.qty})`).join(", ")}
                     </p>
                   </div>
                 </div>

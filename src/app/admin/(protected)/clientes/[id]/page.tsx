@@ -10,7 +10,7 @@ import {
   ArrowLeft, Phone, Mail, Edit2, Baby, Star, ShoppingBag,
   MapPin, RefreshCw, Save, X, AlertCircle,
 } from "lucide-react";
-import { formatCurrency, ageLabel } from "@/lib/utils";
+import { formatCurrency, ageLabel, orderNo } from "@/lib/utils";
 import OrderStatusBadge from "@/components/admin/OrderStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -297,7 +297,7 @@ export default function CustomerProfilePage() {
               {customer.orders.map((order) => (
                 <Link key={order.id} href={`/admin/pedidos/${order.id}`}
                   className="flex items-center gap-4 px-6 py-3 hover:bg-zinc-50 transition-colors">
-                  <span className="text-sm font-bold text-zinc-400 w-10 shrink-0">#{order.number}</span>
+                  <span className="text-sm font-bold text-zinc-400 w-10 shrink-0">#{orderNo(order.number)}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-zinc-700 truncate">
                       {order.items.map(i => `${i.quantity}x ${i.name}`).join(", ")}

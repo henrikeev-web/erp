@@ -4,7 +4,7 @@ import { getCurrentUnit } from "@/lib/unit";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { formatCurrency, orderStatusLabel, paymentMethodLabel } from "@/lib/utils";
+import { formatCurrency, orderStatusLabel, paymentMethodLabel, orderNo } from "@/lib/utils";
 import OrderStatusBadge from "@/components/admin/OrderStatusBadge";
 import OrderActions from "@/components/admin/OrderActions";
 import Link from "next/link";
@@ -39,7 +39,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         </Link>
         <div>
           <h1 className="text-2xl font-bold text-zinc-900 flex items-center gap-3">
-            Pedido #{order.number}
+            Pedido #{orderNo(order.number)}
             <OrderStatusBadge status={order.status} />
             {isFirstOrder && (
               <span className="text-xs font-bold uppercase tracking-wide bg-zinc-900 text-white px-2.5 py-1 rounded-full">1º pedido</span>

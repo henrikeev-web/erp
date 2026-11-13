@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Search, RefreshCw, Phone, Printer, Send, Plus } from "lucide-react";
 import Link from "next/link";
 import axios from "axios";
-import { formatCurrency, orderStatusLabel, paymentMethodLabel } from "@/lib/utils";
+import { formatCurrency, orderStatusLabel, paymentMethodLabel, orderNo } from "@/lib/utils";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import OrderStatusBadge from "@/components/admin/OrderStatusBadge";
@@ -128,7 +128,7 @@ export default function PedidosPage() {
     try {
       const { data } = await axios.post(`/api/pedidos/${order.id}/pagamento`);
       const phone = order.customer.phone.replace(/\D/g, "");
-      const msg = encodeURIComponent(`Olá ${order.customer.name}! Seu pedido #${order.number} aguarda pagamento.\n\nPague aqui: ${data.paymentLinkUrl}`);
+      const msg = encodeURIComponent(`Olá ${order.customer.name}! Seu pedido #${orderNo(order.number)} aguarda pagamento.\n\nPague aqui: ${data.paymentLinkUrl}`);
       window.open(`https://wa.me/55${phone}?text=${msg}`, "_blank");
       load();
     } catch {
@@ -266,7 +266,7 @@ export default function PedidosPage() {
             {filtered.map((order) => (
               <div key={order.id} className={`flex items-center gap-4 px-5 py-4 hover:bg-zinc-50 transition-colors ${isUnpaid(order) ? "border-l-4 border-l-amber-400" : ""}`}>
                 <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center shrink-0">
-                  <span className="text-sm font-bold text-orange-700">#{order.number}</span>
+                  <span className="text-sm font-bold text-orange-700">#{orderNo(order.number)}</span>
                 </div>
 
                 <div className="flex-1 min-w-0">

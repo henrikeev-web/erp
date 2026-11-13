@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUnit } from "@/lib/unit";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, orderNo } from "@/lib/utils";
 import { ShoppingBag, Users, TrendingUp, Clock, Package, Star } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
@@ -216,7 +216,7 @@ export default async function AdminDashboard() {
                       className="flex items-center gap-3 px-6 py-3 hover:bg-zinc-50 transition-colors"
                     >
                       <div className="w-8 h-8 bg-orange-100 rounded-xl flex items-center justify-center shrink-0">
-                        <span className="text-xs font-bold text-orange-700">#{order.number}</span>
+                        <span className="text-xs font-bold text-orange-700">#{orderNo(order.number)}</span>
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-zinc-900 truncate">{order.customer.name}</p>

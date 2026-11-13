@@ -199,6 +199,8 @@ model Customer {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   lastOrderAt     DateTime?
+  source          String? // origem de cliente importado (ex.: "goomer")
+  externalId      String?
 
   // Preferências de notificação
   notifWhatsapp Boolean @default(false)
@@ -219,6 +221,7 @@ model Customer {
   @@unique([unitId, phone])
   @@unique([unitId, cpf])
   @@unique([unitId, googleId])
+  @@unique([unitId, source, externalId])
   @@index([unitId])
   @@index([unitId, type])
 }
@@ -422,6 +425,9 @@ model Order {
   priceTier         OrderPriceTier @default(RETAIL)
   invoiceDays       Int?
   createdBy         String?
+  source            String? // origem de pedido importado (ex.: "goomer")
+  externalId        String? // id do pedido na origem
+  historico         Boolean        @default(false) // importado: sem estoque, impressão, fidelidade nem avisos
   restockedAt       DateTime? // reposição entregue: estoque da franquia já alimentado (evita entrar duas vezes)
   courierId         String?
   courierFee        Float? // custo do entregador gravado ao escolher o entregador (INTERNO)
@@ -453,6 +459,7 @@ model Order {
   courier      Courier?            @relation(fields: [courierId], references: [id])
 
   @@unique([unitId, number])
+  @@unique([unitId, source, externalId])
   @@index([unitId, courierId, deliveredAt])
   @@index([unitId])
 }
