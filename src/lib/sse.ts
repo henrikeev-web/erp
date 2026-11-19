@@ -18,7 +18,8 @@ export interface AdminEvent {
     | "order_new"
     | "order_confirmed"
     | "order_status"
-    | "payment_confirmed";
+    | "payment_confirmed"
+    | "order_external"; // pedido de outra plataforma (Goomer): o painel atualiza; o print-agent ignora
   orderId: string;
   orderNumber: number;
   customerName?: string;

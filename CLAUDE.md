@@ -252,6 +252,36 @@ Auditoria de segurança do sistema e integração da InfinitePay. Detalhes: **`d
 
 ---
 
+## Histórico do Goomer (importado em 2026-11-13, em produção no commit `5f2f90a`)
+
+O Banguelas vendia pelo Goomer (loja 20863; o iFood não é mais ativo). Todo o histórico foi importado na produção: **12.957 pedidos** (jun/2020 → nov/2026), 69.993 itens, 2.433 clientes novos e os pagamentos. Cada mês foi conferido (pedidos, cancelados, faturamento) contra o relatório do próprio Goomer.
+
+- **Campos novos** (`docs/migracao-goomer/1-adiciona-campos.sql`, só colunas/índices): `Order.source`, `Order.externalId`, `Order.historico` e `Customer.source`, `Customer.externalId`, com unique `[unitId, source, externalId]`. Têm de continuar no `schema.prisma`, senão o `db push` do deploy tenta removê-los.
+- **Número do pedido legado é NEGATIVO** (-1 = mais antigo … -12957, ordem cronológica) e a tela mostra **"0.N"**: toda tela que exibir `order.number` deve usar `orderNo()` (`src/lib/utils.ts`). Pedidos novos seguem 1, 2, 3… (`createOrder` usa `Math.max(último, 0) + 1`).
+- **Pedido importado** (`historico = true`, `source = "goomer"`): só INSERTs, sem estoque, fidelidade, impressão, SSE ou WhatsApp. Status DELIVERED (ou CANCELLED); os "aceitos" no Goomer viram DELIVERED com a observação "status no Goomer: aceito". Pagamento com `gatewayId` = id da transação (pagos no app) e `gatewayData` com a categoria original.
+- **Clientes** casados por telefone só com dígitos (sem 55); os importados nascem **sem nenhuma notificação ligada** e sem carteira de fidelidade. Cliente que já existia no ERP é reaproveitado, sem alteração.
+- **Produtos**: item sem equivalente exato no catálogo vai para o produto **inativo "Legado Goomer"** (`gm_legado`, não aparece no cardápio); nome e preço originais ficam no `OrderItem`. Não há casamento aproximado.
+- **Não migrados**: programa de fidelidade do Goomer (201 participantes, regra própria) e os 9 cupons; o uso histórico do cupom fica em `Order.couponCode`. A API do Goomer não separa adicionais/complementos dos itens.
+- **Importador**: `scripts/import-goomer.ts` — `npx tsx scripts/import-goomer.ts <catalogo.txt>` simula e confere os totais; com `--sql <pasta> [--mes AAAA-MM]` gera um `.sql` por mês (transação única, idempotente por `ON CONFLICT DO NOTHING`), que se aplica com `docker exec -i <banco> psql`. O `catalogo.txt` é a saída de `select id|name from "Product"`.
+- **Dados brutos** em `goomer-export/` (JSON extraído da API interna do painel do Goomer pelo navegador do dono, só leitura; contém dados pessoais — está no `.gitignore` e no `.dockerignore`, nunca no Git nem na imagem). Chaves: `order.id` (único) → `externalId`; `idOrdersResource` = `partnerUniqueId` da transação.
+- **Backups**: `/root/backups/pre-goomer-20261113-1723.dump` (antes da importação) e `pre-deploy-20261113-1835.dump`.
+
+### Goomer em tempo real (Open Delivery, 2026-11-19)
+
+A loja continua **operando no Goomer** (aceitar, despachar); o ERP só **acompanha** (decisão do dono: sem kanban, estoque, fidelidade nem impressão).
+
+- **Serviço** `src/lib/goomer-od.ts`, ligado por `src/instrumentation.ts` ao subir o app (mesmo processo ⇒ o SSE chega ao painel). Consulta `GET /v1/events:polling` a cada `GOOMER_OD_POLL_SECONDS` (padrão 30 s, mín. 15). `CREATED` ⇒ `GET /v1/orders/{id}` e grava; `CANCELLED` ⇒ cancela o pedido e o pagamento; outros eventos só vão para o log. **Só confirma o evento (`POST /v1/events/acknowledgment`) depois de gravar**; erro ⇒ o evento volta na próxima consulta. **Nunca** chama confirm/dispatch/cancel no Goomer.
+- **Pedido gravado** já como `DELIVERED`, `source='goomer'`, `externalId` = **UUID do Open Delivery** (o histórico usa o id numérico da API interna: não se cruzam), `historico=false`, número negativo continuando a sequência do histórico ("0.N"), observação `Goomer #000N (tempo real)`. Cliente por telefone (existente não é alterado, só `lastOrderAt`; novo nasce sem notificações); produto pelo nome normalizado (mesma regra do importador) ou "Legado Goomer". Pagamento `PAID` (pré-pago ⇒ `ONLINE_*`; na entrega ⇒ método da maquininha/dinheiro, com troco). Idempotente por `[unitId, source, externalId]` + lock do número.
+- **SSE**: evento `order_external` — `/admin/pedidos` recarrega; o print-agent ignora (não imprime).
+- **Limite do Goomer**: consultar a cada 10 s (mais a busca do pedido) deu **HTTP 429**. O serviço pausa pelo `Retry-After` (ou 60 s) e não busca de novo pedido já gravado.
+- **Comportamento observado** (19/11): o Goomer **só emite `CREATED`** — aceitar no gestor não gera evento — e só entrega pedidos **criados depois que a credencial foi gerada**. Ainda não se viu um `CANCELLED` real (conferir o log no primeiro cancelamento).
+- **Variáveis**: `GOOMER_OD_CLIENT_ID`, `GOOMER_OD_CLIENT_SECRET` (gerados no Goomer em Integrações → Apps & integrações → PDV → Open Delivery; sem elas o serviço fica desligado). Opcionais: `GOOMER_OD_UNIT_SLUG` (padrão `matriz`), `GOOMER_OD_MERCHANT_ID` (`20863`, recusa pedido de outra loja), `GOOMER_OD_BASE_URL`, `GOOMER_OD_POLL_SECONDS`, `GOOMER_OD_ACK=0` (teste: grava sem confirmar).
+- **Uma credencial = um consumidor.** Se o app de produção e um teste local confirmarem eventos com a mesma credencial, um "rouba" o evento do outro: teste sempre com `GOOMER_OD_ACK=0`.
+- **Testes**: `npx tsx scripts/test-goomer-od.ts [pedido.json]` (conversão, sem banco); `npx tsx --env-file=.env scripts/goomer-od-probe.ts` (sonda só leitura, salva o JSON bruto em `/root/goomer-probe/`, que tem dados pessoais).
+- **Lacuna**: pedidos de 13/11 (fim da exportação) até a ativação da credencial (19/11 de manhã) não vêm pelo Open Delivery; completar pelo método da exportação, conferindo para não duplicar pedidos já gravados em tempo real (ids diferentes: casar por data/hora + total + telefone).
+
+---
+
 ## Acessos e infraestrutura de produção
 
 > **Nenhuma senha, token ou chave é registrada aqui** (este arquivo vai para o Git). Valores ficam no Coolify (variáveis do app), no gerenciador de senhas do dono e nos arquivos de backup protegidos do servidor. Se perder um segredo, gere outro e troque.
@@ -263,7 +293,7 @@ Auditoria de segurança do sistema e integração da InfinitePay. Detalhes: **`d
 | Site (loja + admin) | `https://cardapio.banguelas.com.br` (matriz). Painel: `/admin/login`; cliente: `/minha-conta/login` |
 | Franquias | `https://<slug>.banguelas.com.br` — **ainda não há DNS curinga** `*.banguelas.com.br`; adicionar cada domínio no Coolify ou criar o curinga + certificado |
 | Coolify (painel) | `http://<IP-do-servidor>:8000` → app **ERP Banguelas** (uuid `hmi9i2v07jvsk541083ib516`, repo `henrikeev-web/erp`, branch `main`, Dockerfile) |
-| Deploy | **Manual** (o push na `main` NÃO dispara sozinho): botão Deploy no Coolify, ou API `GET /api/v1/deploy?uuid=<uuid>` com token temporário. Runbook (backup → deploy → validação) em `docs/seguranca.md`. Acesso de leitura à produção (`docker exec` no banco) exige permissão explícita do dono |
+| Deploy | **Manual** (o push na `main` NÃO dispara sozinho): botão Deploy no Coolify, ou API `POST /api/v1/deploy?uuid=<uuid>` (no Coolify 4.7.5 o GET deixou de funcionar) com token temporário. Runbook (backup → deploy → validação) em `docs/seguranca.md`. Acesso de leitura à produção (`docker exec` no banco) exige permissão explícita do dono |
 | API do Coolify | `http://127.0.0.1:8000/api/v1` (token em Keys & Tokens → API Tokens, com `read/write/deploy`; desde 2026-10-23 o dono mantém `COOLIFY_TOKEN` no `.env` do repo — gitignored, **nunca no Git**; ler com python/grep porque o `source` do `.env` falha; revogar quando não for mais necessário). Gotcha: `/envs` dá 500 se alguma variável estiver gravada sem criptografia no banco do Coolify (já corrigido em 2026-09-30) |
 | Container do app | `hmi9i2v07jvsk541083ib516-<id>` (muda a cada deploy); logs: `docker logs -f $(docker ps --format '{{.Names}}' \| grep hmi9i)` |
 | Banco de produção | container `el1sceqzhimndmzyxanlb2l7` (postgres:16-alpine), usuário `erp`, banco `banguelas_erp`, sem porta pública. Acesso: `docker exec -it el1sceqzhimndmzyxanlb2l7 psql -U erp -d banguelas_erp`. A senha está na `DATABASE_URL` do app no Coolify |

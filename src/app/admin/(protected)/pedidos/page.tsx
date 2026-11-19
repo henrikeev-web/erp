@@ -98,7 +98,7 @@ export default function PedidosPage() {
     es.onmessage = (e) => {
       try {
         const event: AdminEvent = JSON.parse(e.data);
-        if (event.type === "order_new" || event.type === "order_confirmed") {
+        if (event.type === "order_new" || event.type === "order_confirmed" || event.type === "order_external") {
           load();
         }
         if (event.type === "order_confirmed") {
