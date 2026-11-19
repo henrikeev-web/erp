@@ -87,6 +87,7 @@ model Unit {
   deliveryZones       DeliveryZone[]
   thematicMenus       ThematicMenu[]
   bannerSlides        BannerSlide[]
+  autoMessageConfig   AutoMessageConfig?
   suppliers           Supplier[]
   costCenters         CostCenter[]
   financialEntries    FinancialEntry[]
@@ -429,6 +430,8 @@ model Order {
   externalId        String? // id do pedido na origem
   historico         Boolean        @default(false) // importado: sem estoque, impressão, fidelidade nem avisos
   restockedAt       DateTime? // reposição entregue: estoque da franquia já alimentado (evita entrar duas vezes)
+  autoMsgAt         DateTime? // mensagem automática de WhatsApp reivindicada/enviada (evita enviar duas vezes)
+  autoMsgStatus     String? // SENT | FAILED: <motivo> (src/lib/order-messages.ts)
   courierId         String?
   courierFee        Float? // custo do entregador gravado ao escolher o entregador (INTERNO)
   courierAssignedAt DateTime?
@@ -1104,4 +1107,21 @@ model AwardGrant {
 
   @@unique([awardId, unitId])
   @@index([unitId])
+}
+
+// Mensagem automática de WhatsApp ao entrar um pedido (loja própria + Goomer), por valor dos produtos
+// (total sem a taxa de entrega): abaixo do limite ⇒ messageBelow; igual ou acima ⇒ messageAbove.
+// Envio pela Evolution API (EVOLUTION_API_URL/KEY/INSTANCE). Só a matriz configura (src/lib/order-messages.ts).
+model AutoMessageConfig {
+  id           String   @id @default(cuid())
+  unitId       String   @unique
+  enabled      Boolean  @default(false)
+  threshold    Float    @default(120)
+  messageBelow String   @db.Text
+  messageAbove String   @db.Text
+  updatedBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  unit Unit @relation(fields: [unitId], references: [id])
 }

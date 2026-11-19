@@ -72,7 +72,7 @@ Auditoria completa em **`docs/seguranca.md`** (achados, medidas, pendências, ru
 - **Dinheiro só com prova do gateway** (ver "Gateway de Pagamento").
 - **Nunca monte URL absoluta/redirecionamento com `req.url` ou `req.nextUrl.origin`**: com o servidor ouvindo em `0.0.0.0` (Docker/Coolify) o Next devolve `localhost:<porta>` ignorando o Host. Use `publicOrigin(req.headers, …)` (`lib/google-login.ts`), que só aceita o `AUTH_HOST`/subdomínios de `BASE_DOMAIN`. Redirecionamento relativo (`redirect("/x")`, `Location: /x`) é seguro. Teste: `scripts/test-google-login.ts` e a seção "login Google atrás do proxy" do e2e.
 - **Cabeçalhos/CSP** ficam em `next.config.ts`. O único recurso externo do front é o Google Fonts; novo domínio externo exige ajustar a CSP.
-- **Testes**: `npx next build && bash scripts/e2e-security.sh` (banco descartável + servidor + Chromium/Firefox em container Playwright) deve terminar com `TUDO OK` antes de publicar mudança de auth, checkout, pagamento, upload ou cabeçalhos. Scripts unitários: `scripts/test-{sanitize,upload-url,rate-limit,infinitepay,password,combo,awards}.ts`.
+- **Testes**: `npx next build && bash scripts/e2e-security.sh` (banco descartável + servidor + Chromium/Firefox em container Playwright) deve terminar com `TUDO OK` antes de publicar mudança de auth, checkout, pagamento, upload ou cabeçalhos. Scripts unitários: `scripts/test-{sanitize,upload-url,rate-limit,infinitepay,password,combo,awards,order-messages}.ts`.
 
 ---
 
@@ -279,6 +279,19 @@ A loja continua **operando no Goomer** (aceitar, despachar); o ERP só **acompan
 - **Uma credencial = um consumidor.** Se o app de produção e um teste local confirmarem eventos com a mesma credencial, um "rouba" o evento do outro: teste sempre com `GOOMER_OD_ACK=0`.
 - **Testes**: `npx tsx scripts/test-goomer-od.ts [pedido.json]` (conversão, sem banco); `npx tsx --env-file=.env scripts/goomer-od-probe.ts` (sonda só leitura, salva o JSON bruto em `/root/goomer-probe/`, que tem dados pessoais).
 - **Lacuna preenchida (2026-11-19)**: os 71 pedidos de 13/11 11h41 → 19/11 9h43 (R$ 10.598,99, conferido com o Goomer) vieram de nova exportação (`goomer-export/novo/`) pelo modo lacuna do importador (`--arquivo … --de … --ate …`): numerados 0.12970–0.13040 (depois dos de tempo real), `historico=true`, pulando pedido que já tenha par em tempo real (mesmo telefone e total, ±2 min — os 9 pedidos posteriores casaram 100%). Backup antes: `/root/backups/pre-lacuna-goomer-20261119-1437.dump`.
+
+---
+
+## Mensagem automática no WhatsApp por pedido (2026-11-19)
+
+Ao entrar um pedido, o cliente recebe uma mensagem pelo número da Banguelas na Evolution API (`src/lib/order-messages.ts`). Configuração em **Admin → Configurações → Mensagem automática no WhatsApp** (só admin da matriz; `AutoMessageConfig` por unidade, nasce **desligada** com os textos da campanha "Natal que Acolhe").
+
+- **Regra**: valor = `total − deliveryFee` (com desconto, **sem frete**). Abaixo de `threshold` (padrão R$ 120) ⇒ `messageBelow`; **igual ou acima** ⇒ `messageAbove`. `[nome]` = primeiro nome ("Cliente Goomer"/vazio ⇒ "Olá!").
+- **Disparo**: `scheduleOrderMessage()` depois da transação em `createOrder` (cardápio, pedido manual, bot) e em `ingestOrder` do Goomer (só pedido novo). Melhor esforço: não atrasa nem derruba o pedido.
+- **Fica de fora**: franquias, `historico`, reposição/revenda (`priceTier ≠ RETAIL`), cliente não varejo, cancelado, pedido com mais de 6 h, telefone inválido. **Não respeita `notifWhatsapp`** (decisão do dono: quem comprou recebe).
+- **Uma por pedido**: `Order.autoMsgAt` reivindicado atomicamente; `Order.autoMsgStatus` = `SENT` ou `FAILED: <motivo>` (2 tentativas). A tela mostra os últimos envios e tem botão de teste (10/10 min).
+- **Variáveis**: `EVOLUTION_API_URL` (`https://api.mynano.com.br`), `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE`. Sem elas nada é enviado (a tela avisa).
+- Testes: `npx tsx scripts/test-order-messages.ts`. Colunas novas (`Order.autoMsgAt/autoMsgStatus`, tabela `AutoMessageConfig`) são aditivas: o `db push` do deploy aplica sem perda.
 
 ---
 

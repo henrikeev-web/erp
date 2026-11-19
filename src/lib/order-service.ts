@@ -2,6 +2,7 @@
 import { prisma } from "./prisma";
 import { issuePaymentLink, unitAcceptsOnlinePayment } from "./payment-link";
 import { emitAdminEvent } from "./sse";
+import { scheduleOrderMessage } from "./order-messages";
 import { addDaysUTC, todayUTC } from "./financeiro";
 import { validatePicks } from "./combo";
 import { evaluateAwards } from "./awards";
@@ -376,6 +377,9 @@ export async function createOrder(input: CreateOrderInput) {
   if (unit.type === "FRANCHISE") evaluateAwards(unit.id).catch((e) => console.error("[awards]", e));
 
   emitAdminEvent({ unitId: unit.id, type: "order_new", orderId: order.id, orderNumber: order.number, customerName: order.customer.name });
+
+  // Mensagem automática de WhatsApp (campanha por valor; ver src/lib/order-messages.ts). Não atrasa o pedido.
+  scheduleOrderMessage(order.id);
 
   const { _items, ...result } = order;
   return { ...result, paymentLinkUrl, paymentLinkFailed };

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import PagamentoOnlineCard from "@/components/admin/PagamentoOnlineCard";
 import UsuariosCard from "@/components/admin/UsuariosCard";
 import ImpressaoCard from "@/components/admin/ImpressaoCard";
+import MensagemAutomaticaCard from "@/components/admin/MensagemAutomaticaCard";
 
 interface Brand {
   id: string; name: string; slug: string; logoUrl: string | null; primaryColor: string;
@@ -212,6 +213,7 @@ export default function ConfiguracoesPage() {
 
       {/* Marca */}
       <PagamentoOnlineCard />
+      <MensagemAutomaticaCard />
       <ImpressaoCard />
       <UsuariosCard />
 

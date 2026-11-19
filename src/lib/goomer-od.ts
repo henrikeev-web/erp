@@ -3,7 +3,8 @@
 // O Goomer continua sendo onde a loja opera os pedidos (aceitar, despachar). O ERP só ACOMPANHA:
 // - consulta GET /v1/events:polling a cada GOOMER_OD_POLL_SECONDS (padrão 30 s, mín. 15; HTTP 429 ⇒ pausa);
 // - para CREATED busca o pedido (GET /v1/orders/{id}) e grava no ERP já como ENTREGUE
-//   (source='goomer', externalId=id Open Delivery), sem estoque, fidelidade, impressão nem WhatsApp;
+//   (source='goomer', externalId=id Open Delivery), sem estoque, fidelidade nem impressão (só a mensagem automática de
+//   src/lib/order-messages.ts, se ligada);
 // - CANCELLED marca o pedido como cancelado; os demais eventos só são registrados no log;
 // - só DEPOIS de gravar confirma o evento (POST /v1/events/acknowledgment). Erro ⇒ não confirma e o
 //   evento volta na próxima consulta. NUNCA chama confirm/dispatch/cancel do pedido.
@@ -15,6 +16,7 @@
 // GOOMER_OD_ENABLED=1, que existe SÓ no Coolify (produção).
 import { prisma } from "./prisma";
 import { emitAdminEvent } from "./sse";
+import { scheduleOrderMessage } from "./order-messages";
 import { mapOrder, normName, stripMarks, type OdOrder } from "./goomer-od-map";
 
 const SOURCE = "goomer";
@@ -214,6 +216,8 @@ export async function ingestOrder(od: OdOrder): Promise<{ created: boolean; orde
   if (result.created) {
     // Evento próprio: o painel atualiza a lista; o print-agent ignora (só imprime order_new/order_confirmed).
     emitAdminEvent({ unitId: unit.id, type: "order_external", orderId: result.orderId, orderNumber: result.number, customerName: result.customerName });
+    // Mensagem automática de WhatsApp (ver src/lib/order-messages.ts): só pedido novo, nunca reenvio.
+    scheduleOrderMessage(result.orderId);
   }
   return { created: result.created, orderId: result.orderId, number: result.number };
 }
