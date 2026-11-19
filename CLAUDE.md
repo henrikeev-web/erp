@@ -864,6 +864,17 @@ Os produtos e categorias reais da Banguelas foram importados via `prisma/reset-c
 - **8 fotos cadastradas** (em `references/fotos/`): bolinho-cacau, caldo-mandioca, combo, pê-efinho-baby, pê-efinho, polentinha, risotinho, tutuzinho — vinculadas via API em 2026-06-16.
 - 85 produtos restantes ainda sem foto — adicionar via `/admin/produtos`.
 
+### Alinhamento com o Goomer (2026-11-19)
+
+Fonte: `goomer-export/novo/produtos-2026-11-19.json` (cardápio do painel Goomer; cada produto tem `visible`, `available` e preço por item/variação). Os 201 pedidos de novembro (`pedidos-2026-11.json`) foram todos vendidos pelos preços desse cardápio.
+
+- **Preços**: 20 produtos atualizados no banco de produção (só `price`) para ficar iguais ao Goomer. Decisões do dono: Bolo de milho com goiabada = R$ 49,90; Coração de chocolate = R$ 18,90 (preço de Lanchinhos).
+- **Disponibilidade**: 33 produtos ocultos ou indisponíveis no Goomer foram desativados (`active=false`). Ficaram 60 ativos e 34 inativos (inclui "Legado Goomer"). A importação em tempo real (`src/lib/goomer-od.ts`) casa por nome **inclusive com inativos**, então desativar não quebra os pedidos do Goomer.
+- **Não há sincronização automática**: ao reativar um item no Goomer, ativar também em `/admin/produtos` (ou refazer a comparação com um JSON novo).
+- O ERP não tem SKU preenchido; a comparação é por nome normalizado, com pares manuais para nomes diferentes (ex.: "Bifinho a rolê" ↔ "Bifinho a rolê com creme de batata").
+- "Bolo de cacau 100% – formato Árvore de Natal" existe só no ERP e fica ativo (decisão do dono).
+- Backups: `/root/backups/pre-precos-20261119-1823.dump` e `/root/backups/pre-disponibilidade-20261119-1830.dump`.
+
 ---
 
 ## Filtros e Ordenação do Cardápio
@@ -903,6 +914,7 @@ Os produtos e categorias reais da Banguelas foram importados via `prisma/reset-c
 - [ ] Fluxo n8n para WhatsApp bot (Evolution API + Gemini + endpoints `/api/whatsapp/*`)
 - [ ] Multi-unidade / franqueados — fase 0 feita (Unit + unitId + escopo das rotas); login Google feito; cadastro de franqueado/link/usuários, sync de catálogo, reposição, avisos/pop-ups, premiações e dashboard da rede feitos
 - [ ] Segunda marca "Minuto Menu" (mesma stack, nova Brand no banco)
+- [ ] **Catálogo (adiado pelo dono em 2026-11-19)**: cadastrar a linha Minuto Menu que já está no Goomer (~20 refeições para adultos, R$ 24,90–29,90), bolsas térmicas 5L (58,90) e 8L (88,90), Escovinha Banguelas (10,00); variações sem suporte no ERP (panetone/chocotone "2 unidades" 51,90/52,90; bolos caseiros com calda 68,00) só como produtos separados
 - [x] Deploy em produção (Coolify + Traefik, 2026-09-30) — ver "Segunda etapa" e "Acessos e infraestrutura de produção"
 - [ ] **Segurança**: verificação de telefone/e-mail no cadastro de cliente (canal de envio a definir); backup agendado do banco; cadastrar a InfiniteTag e fazer um pedido real de teste; teste manual do login Google — ver `docs/seguranca.md`
 - [ ] Produção: volume persistente para `public/uploads/` (confirmar no Coolify), `print-agent` (feito em 2026-10-23: instalado na loja, ver `docs/impressao-automatica.md`), backup agendado do banco, DNS curinga das franquias, trocar senhas dos admins

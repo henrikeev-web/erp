@@ -31,7 +31,18 @@ Resumo da auditoria de 2026-10-17, do que foi corrigido, do que ficou pendente e
 | Bot | Chave do WhatsApp comparada em tempo constante | `lib/api-auth.ts` |
 | Infra | Compose: portas do banco/app só em `127.0.0.1`; senha do Postgres por `POSTGRES_PASSWORD` (obrigatória no compose do Coolify) | `docker-compose*.yml` |
 
+## Servidor (VPS) — endurecimento feito (2026-11-13 a 2026-11-19)
+
+- **SSH só por chave**: `/etc/ssh/sshd_config.d/00-hardening.conf` (rollback: apagar o arquivo e `systemctl reload ssh`).
+- **fail2ban** no SSH: `/etc/fail2ban/jail.d/sshd.local` (5 tentativas em 10 min, ban de 1h, redes internas ignoradas).
+- **Portas do Docker fechadas para a internet** (8000 Coolify, 6001/6002, 8080) na `eth0`, v4 e v6: `/usr/local/sbin/docker-user-firewall.sh` + `docker-user-firewall.service`. O Coolify segue em `https://vps.mynano.com.br` e a API local em `127.0.0.1:8000`.
+- **ufw ativo e ligado no boot** (validado de fora pelo dono em 2026-11-19): nega entrada por padrão; libera 22/tcp, 80/tcp, 443 (tcp+udp); 3030 e 8001 (Finance Familiar) só de `10.0.0.0/16` (Traefik e n8n). A porta 5001 (`myn-compositor`) fica aberta por decisão do dono.
+- Para mexer no firewall sem risco de se trancar: armar antes `systemd-run --on-active=20min --unit=ufw-safetyN ufw disable`, testar SSH numa janela nova e só então `systemctl stop ufw-safetyN.timer`.
+
 ## Riscos conhecidos / pendências
+
+- **Token do Coolify** em `/root/erp/.env` (arquivo 644): revogar, gerar outro e restringir o arquivo a `600`.
+- **Atualizações do sistema** pendentes (~66 pacotes) + reboot em horário calmo.
 
 - **Verificação de telefone e e-mail no cadastro (não implementada).** Hoje quem sabe o telefone de um cliente que só comprou como visitante pode "ativar" essa conta (`api/minha-conta/register`), e pré-cadastrar o e-mail de alguém antes do login Google. Precisa de um canal de envio de código (WhatsApp via n8n ou e-mail/SMTP) — o sistema ainda não envia nenhum.
 - **`node-forge`** aparece no `npm audit` sem correção publicada (verificação de assinatura RSA). Não é explorável: o código só lê o nosso `.pfx` da NFS-e.
