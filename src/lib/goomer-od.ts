@@ -11,7 +11,8 @@
 // Observado em 2026-11-19: o Goomer só emite CREATED (aceite no gestor não gera evento) e só entrega
 // pedidos criados depois que a credencial foi gerada. Variáveis: GOOMER_OD_CLIENT_ID, GOOMER_OD_CLIENT_SECRET,
 // opcionais GOOMER_OD_BASE_URL, GOOMER_OD_UNIT_SLUG (padrão matriz), GOOMER_OD_MERCHANT_ID,
-// GOOMER_OD_POLL_SECONDS, GOOMER_OD_ACK=0 (teste: não confirma eventos).
+// GOOMER_OD_POLL_SECONDS, GOOMER_OD_ACK=0 (teste: não confirma eventos). O serviço só liga com
+// GOOMER_OD_ENABLED=1, que existe SÓ no Coolify (produção).
 import { prisma } from "./prisma";
 import { emitAdminEvent } from "./sse";
 import { mapOrder, normName, stripMarks, type OdOrder } from "./goomer-od-map";
@@ -24,6 +25,12 @@ export type OdEvent = { eventId: string; eventType: string; orderId: string; cre
 
 export function goomerOdConfigured() {
   return !!(process.env.GOOMER_OD_CLIENT_ID && process.env.GOOMER_OD_CLIENT_SECRET);
+}
+
+/** O serviço só liga com GOOMER_OD_ENABLED=1 (definido só na produção): um servidor local que carregue o
+ *  .env com a credencial não pode confirmar eventos e "roubar" pedidos do app de produção. */
+export function goomerOdEnabled() {
+  return goomerOdConfigured() && process.env.GOOMER_OD_ENABLED === "1";
 }
 
 const log = (...a: unknown[]) => console.log("[goomer-od]", ...a);
@@ -281,7 +288,7 @@ declare global {
 
 /** Liga o serviço (uma vez por processo). Sem credenciais, não faz nada. */
 export function startGoomerOdPoller() {
-  if (!goomerOdConfigured() || global.__goomerOdPoller) return;
+  if (!goomerOdEnabled() || global.__goomerOdPoller) return;
   const seconds = Math.min(300, Math.max(15, Number(process.env.GOOMER_OD_POLL_SECONDS) || 30));
   let running = false;
   let falhas = 0;

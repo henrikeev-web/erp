@@ -42,7 +42,7 @@
     "date-fns": "^4.4.0",
     "fflate": "^0.8.3",
     "lucide-react": "^1.17.0",
-    "next": "^16.4.2",
+    "next": "^16.4.6",
     "next-auth": "^4.24.15",
     "node-forge": "^1.4.0",
     "pg": "^8.21.0",
@@ -55,7 +55,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
     "xml-crypto": "^6.4.0",
-    "zod": "^4.4.3",
+    "zod": "^4.6.7",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
@@ -65,7 +65,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "^16.4.2",
+    "eslint-config-next": "^16.4.6",
     "playwright": "^1.60.0",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
