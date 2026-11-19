@@ -278,7 +278,7 @@ A loja continua **operando no Goomer** (aceitar, despachar); o ERP só **acompan
 - **Variáveis**: `GOOMER_OD_CLIENT_ID`, `GOOMER_OD_CLIENT_SECRET` (gerados no Goomer em Integrações → Apps & integrações → PDV → Open Delivery; sem elas o serviço fica desligado). Opcionais: `GOOMER_OD_UNIT_SLUG` (padrão `matriz`), `GOOMER_OD_MERCHANT_ID` (`20863`, recusa pedido de outra loja), `GOOMER_OD_BASE_URL`, `GOOMER_OD_POLL_SECONDS`, `GOOMER_OD_ACK=0` (teste: grava sem confirmar).
 - **Uma credencial = um consumidor.** Se o app de produção e um teste local confirmarem eventos com a mesma credencial, um "rouba" o evento do outro: teste sempre com `GOOMER_OD_ACK=0`.
 - **Testes**: `npx tsx scripts/test-goomer-od.ts [pedido.json]` (conversão, sem banco); `npx tsx --env-file=.env scripts/goomer-od-probe.ts` (sonda só leitura, salva o JSON bruto em `/root/goomer-probe/`, que tem dados pessoais).
-- **Lacuna**: pedidos de 13/11 (fim da exportação) até a ativação da credencial (19/11 de manhã) não vêm pelo Open Delivery; completar pelo método da exportação, conferindo para não duplicar pedidos já gravados em tempo real (ids diferentes: casar por data/hora + total + telefone).
+- **Lacuna preenchida (2026-11-19)**: os 71 pedidos de 13/11 11h41 → 19/11 9h43 (R$ 10.598,99, conferido com o Goomer) vieram de nova exportação (`goomer-export/novo/`) pelo modo lacuna do importador (`--arquivo … --de … --ate …`): numerados 0.12970–0.13040 (depois dos de tempo real), `historico=true`, pulando pedido que já tenha par em tempo real (mesmo telefone e total, ±2 min — os 9 pedidos posteriores casaram 100%). Backup antes: `/root/backups/pre-lacuna-goomer-20261119-1437.dump`.
 
 ---
 

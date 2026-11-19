@@ -4,6 +4,8 @@
  *   npx tsx scripts/import-goomer.ts <catalogo.txt>                         # simulação: confere totais, não grava
  *   npx tsx scripts/import-goomer.ts <catalogo.txt> --sql <pasta> [--mes AAAA-MM]
  *                                                                           # gera um .sql por mês (transação única)
+ *   npx tsx scripts/import-goomer.ts <catalogo.txt> --sql <pasta> --arquivo <pedidos-AAAA-MM.json> --de <ISO> --ate <ISO>
+ *                                                                           # LACUNA: só pedidos com de <= createdAt < ate
  *
  * catalogo.txt = saída de: select id, name from "Product" (id|nome por linha).
  *
@@ -16,6 +18,9 @@
  * - Item sem produto equivalente no catálogo vai para o produto inativo "Legado Goomer";
  *   nome e preço originais ficam no OrderItem.
  * - Nada de estoque, fidelidade, impressão, SSE ou WhatsApp: só INSERTs.
+ * - Modo lacuna (--arquivo): o número continua a partir do menor número já existente (min - 1, fora da
+ *   ordem cronológica) e o pedido é pulado se já houver pedido do Goomer em tempo real (Open Delivery,
+ *   id diferente) com o mesmo telefone e total, criado até 2 min de diferença.
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -155,8 +160,19 @@ function simular(catalogo: Map<string, string>) {
   console.log(divergencias === 0 ? "Conferência mensal: tudo bate." : `Conferência mensal: ${divergencias} mês(es) divergente(s).`);
 }
 
-function gerarSql(catalogo: Map<string, string>, pasta: string, soMes?: string) {
-  const porMes = carregarPedidos();
+type Lacuna = { arquivo: string; de: number; ate: number };
+
+function carregarLacuna(l: Lacuna) {
+  const d = JSON.parse(fs.readFileSync(l.arquivo, "utf8")) as { month: string; orders: Pedido[] };
+  const sel = d.orders
+    .filter((p) => Number(p.createdAt) >= l.de && Number(p.createdAt) < l.ate)
+    .sort((a, b) => Number(a.createdAt) - Number(b.createdAt) || a.id.localeCompare(b.id)); // números em ordem cronológica
+  console.log(`${d.orders.length} pedidos no arquivo, ${sel.length} na janela ${new Date(l.de).toISOString()} → ${new Date(l.ate).toISOString()}`);
+  return new Map<string, Pedido[]>([[`${d.month}-lacuna`, sel]]);
+}
+
+function gerarSql(catalogo: Map<string, string>, pasta: string, soMes?: string, lacuna?: Lacuna) {
+  const porMes = lacuna ? carregarLacuna(lacuna) : carregarPedidos();
   const estornos = carregarEstornos();
   fs.mkdirSync(pasta, { recursive: true });
 
@@ -221,22 +237,28 @@ function gerarSql(catalogo: Map<string, string>, pasta: string, soMes?: string) 
       const nota = `Importado do Goomer (nº ${p.ordersCount} do dia)${p.status === "accepted" ? " · status no Goomer: aceito" : ""}`;
       const estorno = estornos.get(String(p.idOrdersResource));
       const pagStatus = cancelado ? "CANCELLED" : estorno ? "REFUNDED" : "PAID";
+      // Lacuna: número = menor existente - 1; não grava se o pedido já entrou em tempo real (outro id).
+      const numExpr = lacuna ? `(SELECT LEAST(COALESCE(min(number),0),0)-1 FROM "Order" WHERE "unitId"=_g.unit_id)` : String(numero.get(p.id));
+      const guarda = lacuna
+        ? ` WHERE NOT EXISTS (SELECT 1 FROM "Order" o JOIN "Customer" c ON c.id=o."customerId" WHERE o."unitId"=_g.unit_id AND o.source='goomer' AND o.historico=false AND c.phone='${fone}' AND abs(o.total-${n(p.valueTotal)})<0.01 AND o."createdAt" BETWEEN ${quando}::timestamp - interval '2 minutes' AND ${quando}::timestamp + interval '2 minutes')`
+        : "";
+      const seGravou = lacuna ? ` WHERE EXISTS (SELECT 1 FROM "Order" WHERE id='gmo${p.id}')` : "";
 
       L.push(
-        `INSERT INTO "Order" (id,number,"brandId","unitId","customerId","addressId",type,status,notes,subtotal,"deliveryFee",discount,"discountNote","couponCode",total,"confirmedAt","deliveredAt","cancelledAt","createdAt","updatedAt",source,"externalId",historico) SELECT 'gmo${p.id}',${numero.get(p.id)},brand_id,unit_id,(SELECT id FROM "Customer" WHERE "unitId"=_g.unit_id AND phone='${fone}'),${addr},'${p.deliveryWay === "delivery" ? "DELIVERY" : "PICKUP"}','${cancelado ? "CANCELLED" : "DELIVERED"}',${q(nota)},${n(p.valueSubtotal)},${n(p.valueDeliveryFee)},${n(desconto)},${q(p.storeCouponCode ? `Cupom ${p.storeCouponCode}` : null)},${q(p.storeCouponCode)},${n(p.valueTotal)},${cancelado ? "NULL" : quando},${cancelado ? "NULL" : quando},${cancelado ? quando : "NULL"},${quando},${quando},'goomer','${p.id}',true FROM _g ON CONFLICT DO NOTHING;`,
+        `INSERT INTO "Order" (id,number,"brandId","unitId","customerId","addressId",type,status,notes,subtotal,"deliveryFee",discount,"discountNote","couponCode",total,"confirmedAt","deliveredAt","cancelledAt","createdAt","updatedAt",source,"externalId",historico) SELECT 'gmo${p.id}',${numExpr},brand_id,unit_id,(SELECT id FROM "Customer" WHERE "unitId"=_g.unit_id AND phone='${fone}'),${addr},'${p.deliveryWay === "delivery" ? "DELIVERY" : "PICKUP"}','${cancelado ? "CANCELLED" : "DELIVERED"}',${q(nota)},${n(p.valueSubtotal)},${n(p.valueDeliveryFee)},${n(desconto)},${q(p.storeCouponCode ? `Cupom ${p.storeCouponCode}` : null)},${q(p.storeCouponCode)},${n(p.valueTotal)},${cancelado ? "NULL" : quando},${cancelado ? "NULL" : quando},${cancelado ? quando : "NULL"},${quando},${quando},'goomer','${p.id}',true FROM _g${guarda} ON CONFLICT DO NOTHING;`,
       );
 
       for (const i of p.items) {
         const nm = norm(i.name);
         const prod = catalogo.get(nm) ?? catalogo.get(semMarcas(nm)) ?? LEGADO_ID;
         L.push(
-          `INSERT INTO "OrderItem" (id,"orderId","productId",name,price,quantity,total,notes) VALUES ('gmi${i.id}','gmo${p.id}','${prod}',${q(i.name)},${n(i.price)},${i.quantity},${n(i.price * i.quantity)},${q(i.comment)}) ON CONFLICT DO NOTHING;`,
+          `INSERT INTO "OrderItem" (id,"orderId","productId",name,price,quantity,total,notes) SELECT 'gmi${i.id}','gmo${p.id}','${prod}',${q(i.name)},${n(i.price)},${i.quantity},${n(i.price * i.quantity)},${q(i.comment)}${seGravou} ON CONFLICT DO NOTHING;`,
         );
       }
 
       const dados = JSON.stringify({ origem: "goomer", paymentType: p.paymentType, paymentCategory: p.paymentCategory, paymentFlag: p.paymentFlag });
       L.push(
-        `INSERT INTO "Payment" (id,"orderId",method,status,amount,"gatewayId","gatewayData","paidAt","refundedAt","changeAmount","createdAt","updatedAt") VALUES ('gmp${p.id}','gmo${p.id}','${metodo}','${pagStatus}',${n(p.valueTotal)},${online ? q(String(p.idOrdersResource)) : "NULL"},${q(dados)}::jsonb,${pagStatus === "CANCELLED" ? "NULL" : quando},${estorno ? `'${estorno.replace("T", " ")}'` : "NULL"},${p.paymentMoneyChange ? n(p.paymentMoneyChange) : "NULL"},${quando},${quando}) ON CONFLICT DO NOTHING;`,
+        `INSERT INTO "Payment" (id,"orderId",method,status,amount,"gatewayId","gatewayData","paidAt","refundedAt","changeAmount","createdAt","updatedAt") SELECT 'gmp${p.id}','gmo${p.id}','${metodo}','${pagStatus}',${n(p.valueTotal)},${online ? q(String(p.idOrdersResource)) : "NULL"},${q(dados)}::jsonb,${pagStatus === "CANCELLED" ? "NULL" : quando},${estorno ? `'${estorno.replace("T", " ")}'` : "NULL"},${p.paymentMoneyChange ? n(p.paymentMoneyChange) : "NULL"},${quando},${quando}${seGravou} ON CONFLICT DO NOTHING;`,
       );
     }
     L.push("COMMIT;");
@@ -252,7 +274,16 @@ function main() {
   const i = args.indexOf("--sql");
   if (i < 0) return simular(catalogo);
   const mes = args.indexOf("--mes");
-  gerarSql(catalogo, args[i + 1], mes >= 0 ? args[mes + 1] : undefined);
+  const arq = args.indexOf("--arquivo");
+  let lacuna: Lacuna | undefined;
+  if (arq >= 0) {
+    const de = Date.parse(args[args.indexOf("--de") + 1]);
+    const ate = Date.parse(args[args.indexOf("--ate") + 1]);
+    if (args.indexOf("--de") < 0 || args.indexOf("--ate") < 0 || !Number.isFinite(de) || !Number.isFinite(ate) || de >= ate)
+      throw new Error("Modo lacuna exige --de e --ate (datas ISO, de < ate).");
+    lacuna = { arquivo: args[arq + 1], de, ate };
+  }
+  gerarSql(catalogo, args[i + 1], mes >= 0 ? args[mes + 1] : undefined, lacuna);
 }
 
 main();
